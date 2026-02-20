@@ -1,29 +1,49 @@
+// src/components/LanguagePrompt.jsx
 import React from "react";
+import { LANGUAGE_CHOICES } from "../lib/lang";
 
-export default function LanguagePrompt({ detected, onAccept, onDecline }) {
-  if (!detected) return null;
+export default function LanguagePrompt({ open, detected, value, onChange, onClose }) {
+  if (!open) return null;
 
   return (
-    <div className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
-      <div className="text-sm text-white">
-        Detected language: <span className="font-semibold">{detected.name}</span>
-      </div>
-      <div className="mt-1 text-xs text-slate-400">
-        Should DeedSense show summaries in your preferred language?
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          onClick={() => onAccept(detected)}
-          className="rounded-xl bg-emerald-500/15 px-3 py-2 text-sm text-emerald-100 ring-1 ring-emerald-300/25 hover:bg-emerald-500/20"
-        >
-          Yes, reply in {detected.name}
-        </button>
-        <button
-          onClick={onDecline}
-          className="rounded-xl bg-white/6 px-3 py-2 text-sm text-slate-200 ring-1 ring-white/10 hover:bg-white/10"
-        >
-          No, keep English
-        </button>
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/60 px-4">
+      <div className="glass w-full max-w-lg rounded-3xl p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-base font-extrabold">Language detected</div>
+            <div className="mt-1 text-sm text-slate-300">
+              We detected <b>{detected?.name || "a language"}</b>. Should DeedSense respond in that language?
+            </div>
+          </div>
+          <button className="btn-ghost" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="mt-4">
+          <div className="label mb-2">Preferred reply language</div>
+          <select
+            className="input"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          >
+            {LANGUAGE_CHOICES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+          <div className="mt-2 text-xs text-slate-400">
+            You can change this anytime. We’ll use this preference for future scans in this browser.
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-ghost" onClick={() => onChange("en")}>
+            Use English
+          </button>
+          <button className="btn-primary" onClick={onClose}>
+            Continue
+          </button>
+        </div>
       </div>
     </div>
   );
