@@ -1,71 +1,63 @@
-// src/components/FAQ.jsx
 import React from "react";
 
 const FAQS = [
   {
-    q: "Is DeedSense a “Trustpilot for real estate”?",
-    a: "Not exactly. Trustpilot is reviews-based. DeedSense analyzes text (listings, chats, brochures) to detect persuasion tactics, missing terms, and risk signals. It’s more like a due-diligence accelerator + messaging risk scanner.",
-  },
-  {
-    q: "Can it analyze UAE properties and global listings?",
-    a: "Yes. The patterns (pressure language, vague promises, missing fees, unclear timeline) apply worldwide. UAE investors benefit because many deals happen fast and over messaging platforms.",
-  },
-  {
-    q: "Is it legal advice?",
-    a: "No. It’s a risk signal. Always verify with official documents and legal/regulated checks before paying.",
-  },
-  {
-    q: "Why do scams feel so convincing?",
-    a: "Because they use urgency, authority cues, scarcity, and social proof. DeedSense flags these persuasion patterns when they appear in text.",
-  },
-  {
-    q: "Does it support PDF and images?",
-    a: "Yes—if your backend has OCR + PDF extraction enabled. The UI is ready. If your API /extract is not deployed yet, upload will show a clear error.",
+    q: "Is DeedSense legal advice?",
+    a: "No. DeedSense provides language-based risk signals and verification suggestions. Always validate using official documents, escrow proofs, and professional due diligence."
   },
   {
     q: "What should I paste for best results?",
-    a: "Paste the broker’s message + payment plan terms + fee breakdown + any timeline/hand-over promises. The more context, the better.",
+    a: "Paste the full listing description + broker message + payment plan terms + any urgency language. The more complete the text, the better the signal quality."
   },
   {
-    q: "Do you store my documents?",
-    a: "In this MVP, history is stored in your browser. For production, you can store encrypted reports per signed-in user. (We can implement a privacy-first design.)",
+    q: "How does the score work?",
+    a: "The score summarizes risk signals found in language patterns: pressure tactics, unverifiable claims, missing documentation cues, and payment risk instructions. It’s a triage tool, not a verdict."
   },
   {
-    q: "What’s the difference between Risk and Manipulation scores?",
-    a: "Risk focuses on deal/term uncertainty. Manipulation focuses on persuasion tactics (pressure, urgency, promises, vague commitments). Trust is the opposite signal (clarity, transparency, verifiability).",
+    q: "Does a low score mean it’s safe?",
+    a: "No. A low score only means the language itself isn’t strongly manipulative. Many risks exist outside text (fake documents, impersonation, hidden fees). Always verify."
   },
   {
-    q: "Can agencies use this tool to build trust with clients?",
-    a: "Yes. Agencies can scan their own listings for compliance and transparency before publishing — and show clients a trust/risk report to improve confidence.",
+    q: "Can it read scanned PDFs and images?",
+    a: "Yes. If a PDF has little extractable text, DeedSense automatically uses OCR. Images (PNG/JPG/JPEG) also use OCR."
   },
   {
-    q: "Will there be an enterprise API?",
-    a: "Yes. Enterprise plans can integrate scoring into portals/CRMs, allow team dashboards, admin rules, and SLA-based service.",
+    q: "What documents are most important to verify?",
+    a: "Title deed/Oqood, SPA/MOU, project registration details, beneficiary verification (payment recipient), agent license, and the refund/cancellation clauses."
   },
+  {
+    q: "What are common manipulation patterns in real estate deals?",
+    a: "False urgency (“only today”), scarcity (“last unit”), overconfidence (“guaranteed returns”), discouraging verification, and pushing payments quickly."
+  },
+  {
+    q: "Can I use this for countries outside UAE?",
+    a: "Yes. The risk signals are language-based and broadly applicable. The verification checklist should be adapted to the local registry and legal process."
+  },
+  {
+    q: "Do you store my files?",
+    a: "In this build, scan history is stored in your browser only. The API can optionally store anonymized scan results if you enable Postgres later."
+  },
+  {
+    q: "Can DeedSense recommend properties with links?",
+    a: "Chat currently runs in offline MVP mode (no web search). We can add a verified web research mode later that returns sources + links."
+  }
 ];
 
 export default function FAQ() {
   return (
-    <div className="glass rounded-3xl p-5">
-      <div>
-        <div className="text-lg font-extrabold">FAQs</div>
-        <div className="mt-1 text-sm text-slate-300">
-          Quick answers about what DeedSense is (and what it is not).
-        </div>
+    <div className="glass rounded-3xl p-6">
+      <div className="text-lg font-black">FAQ</div>
+      <div className="text-sm text-slate-300 mt-2">
+        Practical questions investors usually ask.
       </div>
 
-      <div className="hr" />
+      <div className="hr my-5" />
 
       <div className="space-y-3">
         {FAQS.map((f, i) => (
-          <details
-            key={i}
-            className="rounded-2xl border border-white/10 bg-white/5 p-4"
-          >
-            <summary className="cursor-pointer text-sm font-bold text-slate-100">
-              {f.q}
-            </summary>
-            <div className="mt-2 text-sm text-slate-200">{f.a}</div>
+          <details key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <summary className="cursor-pointer font-semibold">{f.q}</summary>
+            <div className="mt-3 text-sm text-slate-200 leading-relaxed">{f.a}</div>
           </details>
         ))}
       </div>
