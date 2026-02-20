@@ -1,54 +1,64 @@
-// src/lib/api.js
-const API_BASE =
-  (import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
-  "https://deedsense-api.onrender.com";
+import { supabase } from "./supabase";
 
-async function parseErr(res) {
-  try {
-    const j = await res.json();
-    return j?.detail || j?.error || JSON.stringify(j);
-  } catch {
-    try {
-      return await res.text();
-    } catch {
-      return "Unknown error";
-    }
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
+async function getAccessToken() {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data?.session?.access_token || null;
+}
+
+export async function apiFetch(path, options = {}) {
+  if (!API_BASE) throw new Error("VITE_API_BASE_URL not configured");
+
+  const token = await getAccessToken();
+  const headers = new Headers(options.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  // Try parse json always
+  let data = null;
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) data = await res.json().catch(() => null);
+  else data = await res.text().catch(() => null);
+
+  if (!res.ok) {
+    const detail =
+      (data && data.detail) ||
+      (typeof data === "string" ? data : null) ||
+      `Request failed (${res.status})`;
+    const err = new Error(detail);
+    err.status = res.status;
+    err.payload = data;
+    throw err;
   }
+
+  return data;
 }
 
-async function request(path, opts = {}) {
-  const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...opts,
-    credentials: "include",
+export async function apiMe() {
+  return apiFetch("/me");
+}
+
+export async function apiSaveProfile(profile) {
+  return apiFetch("/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
   });
-  if (!res.ok) throw new Error(await parseErr(res));
-  return res.json();
 }
 
-export async function health() {
-  return request("/health", { method: "GET" });
-}
-
-/**
- * Backend should expose:
- * POST /extract  (multipart/form-data: file) -> { text, meta }
- * POST /analyze  (application/json: { text, preferred_language? }) -> report JSON
- *
- * If your backend only has /analyze for text, upload will fail gracefully.
- */
-export async function extractFile(file) {
+export async function apiExtract(file) {
   const fd = new FormData();
   fd.append("file", file);
-  return request("/extract", { method: "POST", body: fd });
+  return apiFetch("/extract", { method: "POST", body: fd });
 }
 
-export async function analyzeText({ text, preferred_language }) {
-  return request("/analyze", {
+export async function apiAnalyzeText(text, preferred_language = null) {
+  return apiFetch("/analyze-text", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, preferred_language }),
   });
 }
-
-export { API_BASE };
