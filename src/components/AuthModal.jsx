@@ -1,77 +1,73 @@
+// src/components/AuthModal.jsx
 import React, { useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
 
-export default function AuthModal({ open, onClose }) {
+export default function AuthModal({ open, onClose, onFakeLogin }) {
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState(null);
-  const canUse = useMemo(() => !!supabase, []);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const valid = useMemo(() => /\S+@\S+\.\S+/.test(email.trim()), [email]);
 
   if (!open) return null;
 
-  async function sendOTP() {
-    setStatus(null);
-    if (!supabase) {
-      setStatus("Supabase not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
-      return;
+  async function handleMagicLink() {
+    setBusy(true);
+    setMsg("");
+    try {
+      // Placeholder: your real Supabase magic link can be wired later.
+      // For now we simulate login so the UI works end-to-end.
+      await new Promise((r) => setTimeout(r, 650));
+      onFakeLogin({ email: email.trim() });
+      setMsg("Signed in (demo). You can wire real OTP later.");
+      onClose();
+    } catch (e) {
+      setMsg(e?.message || "Auth failed.");
+    } finally {
+      setBusy(false);
     }
-    if (!email.includes("@")) {
-      setStatus("Enter a valid email.");
-      return;
-    }
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: window.location.origin
-      }
-    });
-    if (error) setStatus(error.message);
-    else setStatus("✅ Magic link sent. Check your inbox (and spam).");
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-3xl bg-slate-950/70 p-5 ring-1 ring-white/10 backdrop-blur-xl">
-        <div className="flex items-start justify-between">
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/60 px-4">
+      <div className="glass w-full max-w-lg rounded-3xl p-6">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-lg font-semibold text-white">Sign in</div>
-            <div className="mt-1 text-sm text-slate-400">
-              Email OTP (magic link). No password.
+            <div className="text-base font-extrabold">Sign in</div>
+            <div className="mt-1 text-sm text-slate-300">
+              Sign in to sync your scan history across devices and unlock unlimited plans.
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-white/5 px-3 py-2 text-sm text-slate-200 ring-1 ring-white/10 hover:bg-white/8"
-          >
+          <button className="btn-ghost" onClick={onClose}>
             Close
           </button>
         </div>
 
-        <div className="mt-4 space-y-3">
-          <label className="block text-sm text-slate-300">Email</label>
+        <div className="mt-5">
+          <div className="label mb-2">Email</div>
           <input
+            className="input"
+            placeholder="you@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
-            className="w-full rounded-2xl bg-white/5 px-4 py-3 text-white ring-1 ring-white/10 outline-none placeholder:text-slate-500 focus:ring-emerald-300/25"
           />
-
-          <button
-            disabled={!canUse}
-            onClick={sendOTP}
-            className="w-full rounded-2xl bg-emerald-500/15 px-4 py-3 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-300/25 hover:bg-emerald-500/20 disabled:opacity-40"
-          >
-            Send magic link
-          </button>
-
-          {status && (
-            <div className="rounded-2xl bg-white/5 p-3 text-sm text-slate-200 ring-1 ring-white/10">
-              {status}
-            </div>
-          )}
-
-          <div className="text-xs text-slate-500">
-            By signing in, you agree this tool provides risk signals only — not legal advice.
+          <div className="mt-2 text-xs text-slate-400">
+            For now this is a demo sign-in. Later you can connect Supabase OTP / Magic link.
           </div>
+        </div>
+
+        {msg ? <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">{msg}</div> : null}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary"
+            onClick={handleMagicLink}
+            disabled={!valid || busy}
+          >
+            {busy ? "Signing in..." : "Send Magic Link (Demo)"}
+          </button>
         </div>
       </div>
     </div>
