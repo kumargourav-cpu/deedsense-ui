@@ -1,7 +1,7 @@
-// src/components/AuthModal.jsx
 import React, { useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
-export default function AuthModal({ open, onClose, onFakeLogin }) {
+export default function AuthModal({ open, onClose, onAuthed }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -11,19 +11,39 @@ export default function AuthModal({ open, onClose, onFakeLogin }) {
   if (!open) return null;
 
   async function handleMagicLink() {
+    if (!supabase) {
+      setMsg("Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Render.");
+      return;
+    }
+
     setBusy(true);
     setMsg("");
     try {
-      // Placeholder: your real Supabase magic link can be wired later.
-      // For now we simulate login so the UI works end-to-end.
-      await new Promise((r) => setTimeout(r, 650));
-      onFakeLogin({ email: email.trim() });
-      setMsg("Signed in (demo). You can wire real OTP later.");
-      onClose();
+      const redirectTo = window.location.origin; // Render static site URL
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: redirectTo,
+        },
+      });
+      if (error) throw error;
+
+      setMsg("Magic link sent. Check your email and open the link to finish sign-in.");
     } catch (e) {
       setMsg(e?.message || "Auth failed.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleRefreshSession() {
+    if (!supabase) return;
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) {
+      onAuthed?.(data.session);
+      onClose();
+    } else {
+      setMsg("No active session yet. Open the magic link from your email, then click this.");
     }
   }
 
@@ -32,9 +52,9 @@ export default function AuthModal({ open, onClose, onFakeLogin }) {
       <div className="glass w-full max-w-lg rounded-3xl p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-base font-extrabold">Sign in</div>
+            <div className="text-base font-extrabold">Sign in / Sign up</div>
             <div className="mt-1 text-sm text-slate-300">
-              Sign in to sync your scan history across devices and unlock unlimited plans.
+              You must sign in to use DeedSense. We use secure magic links (no password).
             </div>
           </div>
           <button className="btn-ghost" onClick={onClose}>
@@ -51,22 +71,27 @@ export default function AuthModal({ open, onClose, onFakeLogin }) {
             onChange={(e) => setEmail(e.target.value)}
           />
           <div className="mt-2 text-xs text-slate-400">
-            For now this is a demo sign-in. Later you can connect Supabase OTP / Magic link.
+            We’ll send a secure sign-in link to your email. Open it, then return here.
           </div>
         </div>
 
-        {msg ? <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">{msg}</div> : null}
+        {msg ? (
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+            {msg}
+          </div>
+        ) : null}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button className="btn-ghost" onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button
-            className="btn-primary"
-            onClick={handleMagicLink}
-            disabled={!valid || busy}
-          >
-            {busy ? "Signing in..." : "Send Magic Link (Demo)"}
+
+          <button className="btn-ghost" onClick={handleRefreshSession} disabled={busy}>
+            I opened the link
+          </button>
+
+          <button className="btn-primary" onClick={handleMagicLink} disabled={!valid || busy}>
+            {busy ? "Sending..." : "Send Magic Link"}
           </button>
         </div>
       </div>
