@@ -1,46 +1,54 @@
+// src/components/TopNav.jsx
 import React from "react";
-import { LogIn, LogOut, ShieldCheck } from "lucide-react";
 
 export default function TopNav({
+  brand = "DeedSense",
   active,
   setActive,
   user,
-  onOpenAuth,
-  onSignOut
+  onSignIn,
+  onSignOut,
+  freeScansLeft,
 }) {
   const tabs = [
     { key: "scan", label: "Scan" },
     { key: "history", label: "History" },
     { key: "pricing", label: "Pricing" },
-    { key: "about", label: "About" }
+    { key: "about", label: "About" },
+    { key: "faq", label: "FAQs" },
   ];
 
   return (
-    <div className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/60 backdrop-blur-xl">
+    <div className="sticky top-0 z-50 border-b border-white/10 bg-black/20 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">
-            <ShieldCheck className="h-5 w-5 text-emerald-200" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-white">DeedSense</div>
-            <div className="text-xs text-slate-400">
-              Trust & Manipulation Risk Scanner
+        <button
+          className="flex items-center gap-3"
+          onClick={() => setActive("scan")}
+          title="Go to Scan"
+        >
+          <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-sky-500/90 to-violet-500/90 p-[1px]">
+            <div className="glass flex h-full w-full items-center justify-center rounded-2xl">
+              <span className="text-sm font-black tracking-tight">DS</span>
             </div>
           </div>
-        </div>
+          <div className="text-left leading-tight">
+            <div className="text-sm font-extrabold tracking-tight">{brand}</div>
+            <div className="text-[11px] text-slate-400">
+              Trust & Manipulation Risk Scanner for Property Investors
+            </div>
+          </div>
+        </button>
 
-        <div className="hidden items-center gap-1 rounded-full bg-white/5 p-1 ring-1 ring-white/10 md:flex">
+        <div className="hidden items-center gap-2 md:flex">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setActive(t.key)}
-              className={[
-                "rounded-full px-4 py-2 text-sm transition",
+              className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
                 active === t.key
-                  ? "bg-white/12 text-white ring-1 ring-white/15"
-                  : "text-slate-300 hover:bg-white/8"
-              ].join(" ")}
+                  ? "bg-white/10 text-white"
+                  : "text-slate-300 hover:bg-white/5"
+              }`}
             >
               {t.label}
             </button>
@@ -48,44 +56,39 @@ export default function TopNav({
         </div>
 
         <div className="flex items-center gap-2">
+          <span className="badge hidden sm:inline-flex">
+            Free scans: <b className="ml-1">{freeScansLeft}</b>
+          </span>
+
           {user ? (
             <>
-              <div className="hidden text-xs text-slate-400 md:block">
+              <span className="hidden md:inline-flex text-xs text-slate-300">
                 {user.email}
-              </div>
-              <button
-                onClick={onSignOut}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2 text-sm text-white ring-1 ring-white/10 hover:bg-white/12"
-              >
-                <LogOut className="h-4 w-4" />
+              </span>
+              <button className="btn-ghost" onClick={onSignOut}>
                 Sign out
               </button>
             </>
           ) : (
-            <button
-              onClick={onOpenAuth}
-              className="inline-flex items-center gap-2 rounded-xl bg-emerald-500/15 px-3 py-2 text-sm text-emerald-100 ring-1 ring-emerald-300/25 hover:bg-emerald-500/20"
-            >
-              <LogIn className="h-4 w-4" />
+            <button className="btn-primary" onClick={onSignIn}>
               Sign in
             </button>
           )}
         </div>
       </div>
 
-      {/* mobile tabs */}
+      {/* Mobile tabs */}
       <div className="mx-auto max-w-6xl px-4 pb-3 md:hidden">
-        <div className="flex gap-2 overflow-x-auto">
+        <div className="glass flex flex-wrap gap-2 rounded-2xl p-2">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setActive(t.key)}
-              className={[
-                "whitespace-nowrap rounded-full px-4 py-2 text-sm ring-1 transition",
+              className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition ${
                 active === t.key
-                  ? "bg-white/12 text-white ring-white/15"
-                  : "bg-white/5 text-slate-300 ring-white/10 hover:bg-white/8"
-              ].join(" ")}
+                  ? "bg-white/10 text-white"
+                  : "text-slate-300 hover:bg-white/5"
+              }`}
             >
               {t.label}
             </button>
