@@ -1,5 +1,7 @@
-// src/App.jsx
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "./lib/supabase";
+import { apiAnalyzeText, apiExtract, apiMe, apiSaveProfile, API_BASE } from "./lib/api";
+
 import TopNav from "./components/TopNav";
 import ScanForm from "./components/ScanForm";
 import ResultsPanel from "./components/ResultsPanel";
@@ -8,274 +10,201 @@ import Pricing from "./components/Pricing";
 import About from "./components/About";
 import FAQ from "./components/FAQ";
 import AuthModal from "./components/AuthModal";
+import ProfileModal from "./components/ProfileModal";
 import LanguagePrompt from "./components/LanguagePrompt";
 
-import { analyzeText, extractFile } from "./lib/api";
-import { detectLanguageHeuristic, LANGUAGE_CHOICES } from "./lib/lang";
-
-const LS_HISTORY = "deedsense_history_v1";
-const LS_FREE = "deedsense_free_scans_v1";
-const LS_LANG = "deedsense_lang_pref_v1";
-const FREE_LIMIT = 5;
-
-function loadHistory() {
-  try {
-    const v = JSON.parse(localStorage.getItem(LS_HISTORY) || "[]");
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(items) {
-  localStorage.setItem(LS_HISTORY, JSON.stringify(items.slice(0, 50)));
-}
-
-function loadFreeScans() {
-  const raw = localStorage.getItem(LS_FREE);
-  if (!raw) return FREE_LIMIT;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) ? n : FREE_LIMIT;
-}
-
-function saveFreeScans(n) {
-  localStorage.setItem(LS_FREE, String(n));
-}
-
-function loadLangPref() {
-  const raw = localStorage.getItem(LS_LANG);
-  return raw || "en";
-}
-
-function saveLangPref(code) {
-  localStorage.setItem(LS_LANG, code);
-}
-
-function makeId() {
-  return Math.random().toString(16).slice(2) + Date.now().toString(16);
-}
+const PAGES = ["Scan", "History", "Pricing", "About", "FAQ"];
 
 export default function App() {
-  const [active, setActive] = useState("scan");
+  const [page, setPage] = useState("Scan");
 
-  const [user, setUser] = useState(null); // demo user object {email}
+  const [session, setSession] = useState(null);
+  const [me, setMe] = useState(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [report, setReport] = useState(null);
-  const [extractedMeta, setExtractedMeta] = useState(null);
+  const [extractedText, setExtractedText] = useState("");
+  const [result, setResult] = useState(null);
 
-  const [history, setHistory] = useState(() => loadHistory());
-  const [freeScansLeft, setFreeScansLeft] = useState(() => loadFreeScans());
-
-  const [langPref, setLangPref] = useState(() => loadLangPref());
   const [langPromptOpen, setLangPromptOpen] = useState(false);
+  const [preferredLang, setPreferredLang] = useState(null);
   const [detectedLang, setDetectedLang] = useState(null);
 
-  const langLabel = useMemo(() => {
-    return LANGUAGE_CHOICES.find((l) => l.code === langPref)?.name || "English";
-  }, [langPref]);
+  const signedIn = !!session;
+  const profileComplete = !!me?.profile_complete;
 
+  // -----------------------------
+  // Auth bootstrap
+  // -----------------------------
   useEffect(() => {
-    saveHistory(history);
-  }, [history]);
+    if (!supabase) return;
 
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data?.session || null);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession || null);
+    });
+
+    return () => sub?.subscription?.unsubscribe?.();
+  }, []);
+
+  // -----------------------------
+  // Load /me when signed in
+  // -----------------------------
   useEffect(() => {
-    saveFreeScans(freeScansLeft);
-  }, [freeScansLeft]);
+    async function load() {
+      if (!signedIn) {
+        setMe(null);
+        return;
+      }
+      try {
+        const data = await apiMe();
+        setMe(data);
 
+        // force profile completion if needed
+        if (data?.signed_in && !data?.profile_complete) setProfileOpen(true);
+      } catch (e) {
+        setError(e.message || "Failed to load user info.");
+      }
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn]);
+
+  // Force auth before any use
   useEffect(() => {
-    saveLangPref(langPref);
-  }, [langPref]);
+    if (!signedIn) setAuthOpen(true);
+  }, [signedIn]);
 
-  function openHistoryItem(item) {
-    setReport(item.report);
-    setExtractedMeta(item.extractedMeta || null);
-    setActive("scan");
-  }
-
-  function synthTitleFromText(t) {
-    const s = (t || "").trim().replace(/\s+/g, " ");
-    return s.slice(0, 64) + (s.length > 64 ? "…" : "");
+  // -----------------------------
+  // Handlers
+  // -----------------------------
+  async function handleSaveProfile(profile) {
+    await apiSaveProfile(profile);
+    const data = await apiMe();
+    setMe(data);
   }
 
   async function handleUpload(file) {
     setError("");
-    setReport(null);
-    setExtractedMeta(null);
-
     setBusy(true);
+    setResult(null);
     try {
-      const res = await extractFile(file);
-      const extractedText = res?.text || "";
-      setText(extractedText);
+      const out = await apiExtract(file); // expects { text, meta }
+      const t = out?.text || "";
+      setExtractedText(t);
 
-      setExtractedMeta({
-        source: file?.name || "upload",
-        pages: res?.meta?.pages,
-        ocr: res?.meta?.ocr,
-      });
+      // Optional: naive language detection prompt trigger
+      const hasArabic = /[\u0600-\u06FF]/.test(t);
+      const lang = hasArabic ? "Arabic" : "English";
+      setDetectedLang(lang);
 
-      // language detect prompt
-      const det = detectLanguageHeuristic(extractedText);
-      setDetectedLang(det);
-      if (det?.code && det.code !== langPref) setLangPromptOpen(true);
-    } catch (e) {
-      setError(
-        `Upload/extraction failed. Your API must expose POST /extract. Details: ${e?.message || e}`
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleScan() {
-    setError("");
-    setReport(null);
-
-    const content = (text || "").trim();
-    if (content.length < 30) {
-      setError("Paste at least ~30 characters to scan.");
-      return;
-    }
-
-    if (!user && freeScansLeft <= 0) {
-      setError("Free scans are finished for guest mode. Please sign in to continue.");
-      return;
-    }
-
-    // prompt language detection (only if user hasn't already chosen)
-    const det = detectLanguageHeuristic(content);
-    setDetectedLang(det);
-    if (det?.code && det.code !== langPref) {
+      // Ask permission to respond in detected language
       setLangPromptOpen(true);
-      // still continue with scan using current preference; user can change before next scan
-    }
-
-    setBusy(true);
-    try {
-      const r = await analyzeText({ text: content, preferred_language: langPref });
-      setReport(r);
-
-      const scores = r?.scores || {
-        trust: r?.trust_score ?? 50,
-        risk: r?.risk_score ?? 50,
-        manipulation: r?.manipulation_score ?? 50,
-      };
-
-      const item = {
-        id: makeId(),
-        created_at: new Date().toISOString(),
-        title: r?.title || "Scan",
-        preview: synthTitleFromText(content),
-        scores,
-        report: r,
-        extractedMeta,
-      };
-
-      setHistory((prev) => [item, ...prev].slice(0, 50));
-
-      if (!user) setFreeScansLeft((n) => Math.max(0, n - 1));
     } catch (e) {
-      setError(e?.message || "Scan failed.");
+      if (e.message === "PROFILE_REQUIRED") setProfileOpen(true);
+      else if ((e.message || "").includes("Sign in required")) setAuthOpen(true);
+      else setError(`Upload/extraction failed: ${e.message}`);
     } finally {
       setBusy(false);
     }
   }
 
-  function signOut() {
-    setUser(null);
+  async function handleScan(text) {
+    setError("");
+    setBusy(true);
+    setResult(null);
+    try {
+      const out = await apiAnalyzeText(text, preferredLang);
+      setResult(out);
+    } catch (e) {
+      if (e.message === "PROFILE_REQUIRED") setProfileOpen(true);
+      else if ((e.message || "").includes("Sign in required")) setAuthOpen(true);
+      else setError(e.message || "Scan failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderPage() {
+    if (page === "History") return <History me={me} />;
+    if (page === "Pricing") return <Pricing me={me} />;
+    if (page === "About") return <About />;
+    if (page === "FAQ") return <FAQ />;
+    return (
+      <div className="grid gap-6 lg:grid-cols-[1.05fr_.95fr]">
+        <ScanForm
+          apiBase={API_BASE}
+          busy={busy}
+          error={error}
+          extractedText={extractedText}
+          onExtractFile={handleUpload}
+          onScan={handleScan}
+          requireAuth={true}
+          signedIn={signedIn}
+          profileComplete={profileComplete}
+          onOpenAuth={() => setAuthOpen(true)}
+          onOpenProfile={() => setProfileOpen(true)}
+          setExtractedText={setExtractedText}
+        />
+        <ResultsPanel result={result} />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen">
       <TopNav
-        brand="DeedSense"
-        active={active}
-        setActive={setActive}
-        user={user}
+        page={page}
+        setPage={setPage}
+        pages={PAGES}
+        signedIn={signedIn}
+        userEmail={me?.user?.email || session?.user?.email}
+        profileComplete={profileComplete}
         onSignIn={() => setAuthOpen(true)}
-        onSignOut={signOut}
-        freeScansLeft={user ? "∞" : freeScansLeft}
+        onCompleteProfile={() => setProfileOpen(true)}
+        onSignOut={async () => {
+          if (supabase) await supabase.auth.signOut();
+          setSession(null);
+          setMe(null);
+          setAuthOpen(true);
+        }}
       />
+
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-6">{renderPage()}</main>
 
       <AuthModal
         open={authOpen}
         onClose={() => setAuthOpen(false)}
-        onFakeLogin={(u) => setUser(u)}
+        onAuthed={(sess) => {
+          setSession(sess);
+          setAuthOpen(false);
+        }}
+      />
+
+      <ProfileModal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onSave={handleSaveProfile}
       />
 
       <LanguagePrompt
         open={langPromptOpen}
-        detected={detectedLang}
-        value={langPref}
-        onChange={(code) => setLangPref(code)}
+        detectedLanguage={detectedLang}
         onClose={() => setLangPromptOpen(false)}
+        onAllow={(lang) => {
+          setPreferredLang(lang);
+          setLangPromptOpen(false);
+        }}
+        onDeny={() => {
+          setPreferredLang(null);
+          setLangPromptOpen(false);
+        }}
       />
-
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        {/* HERO */}
-        <div className="mb-6">
-          <div className="glass rounded-3xl p-6">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="text-2xl font-extrabold tracking-tight">
-                  Investor-grade trust & manipulation scanning
-                </div>
-                <div className="mt-2 max-w-3xl text-sm text-slate-300">
-                  Paste a listing, broker message, payment plan terms, or upload a PDF/image.
-                  DeedSense highlights persuasion tactics, hidden risk signals, and what to verify next.
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="btn-ghost" onClick={() => setActive("pricing")}>
-                  View pricing
-                </button>
-                <button className="btn-primary" onClick={() => setActive("scan")}>
-                  Start scanning
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* PAGES */}
-        {active === "scan" ? (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="space-y-4">
-              <ScanForm
-                text={text}
-                setText={setText}
-                onScan={handleScan}
-                onUpload={handleUpload}
-                busy={busy}
-                error={error}
-                freeScansLeft={freeScansLeft}
-                user={user}
-                preferredLanguageLabel={langLabel}
-              />
-            </div>
-
-            <div className="space-y-4">
-              <ResultsPanel report={report} extractedMeta={extractedMeta} />
-            </div>
-          </div>
-        ) : null}
-
-        {active === "history" ? (
-          <History items={history} onOpen={openHistoryItem} />
-        ) : null}
-
-        {active === "pricing" ? <Pricing /> : null}
-        {active === "about" ? <About /> : null}
-        {active === "faq" ? <FAQ /> : null}
-
-        <div className="mt-8 text-center text-xs text-slate-500">
-          © 2026 DeedSense • Not legal advice • Use at your own risk
-        </div>
-      </main>
     </div>
   );
 }
