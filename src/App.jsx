@@ -1,210 +1,142 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "./lib/supabase";
-import { apiAnalyzeText, apiExtract, apiMe, apiSaveProfile, API_BASE } from "./lib/api";
+import TopNav from "./components/TopNav.jsx";
+import ScanForm from "./components/ScanForm.jsx";
+import ResultsPanel from "./components/ResultsPanel.jsx";
+import ProgressOverlay from "./components/ProgressOverlay.jsx";
 
-import TopNav from "./components/TopNav";
-import ScanForm from "./components/ScanForm";
-import ResultsPanel from "./components/ResultsPanel";
-import History from "./components/History";
-import Pricing from "./components/Pricing";
-import About from "./components/About";
-import FAQ from "./components/FAQ";
-import AuthModal from "./components/AuthModal";
-import ProfileModal from "./components/ProfileModal";
-import LanguagePrompt from "./components/LanguagePrompt";
+import History from "./pages/History.jsx";
+import Pricing from "./pages/Pricing.jsx";
+import About from "./pages/About.jsx";
+import FAQ from "./pages/FAQ.jsx";
+import Chat from "./pages/Chat.jsx";
 
-const PAGES = ["Scan", "History", "Pricing", "About", "FAQ"];
+import { t } from "./lib/i18n.js";
+import { getApiBase } from "./lib/api.js";
+
+const LS_KEY = "deedsense_history_v1";
+const LS_LANG = "deedsense_lang_v1";
+
+function makeId() {
+  return Math.random().toString(16).slice(2) + Date.now().toString(16);
+}
 
 export default function App() {
-  const [page, setPage] = useState("Scan");
+  const [active, setActive] = useState("scan");
+  const [lang, setLang] = useState(localStorage.getItem(LS_LANG) || "en");
 
-  const [session, setSession] = useState(null);
-  const [me, setMe] = useState(null);
-  const [authOpen, setAuthOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [progressStep, setProgressStep] = useState(0);
+  const [progressSteps, setProgressSteps] = useState([]);
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [extractedText, setExtractedText] = useState("");
-  const [result, setResult] = useState(null);
-
-  const [langPromptOpen, setLangPromptOpen] = useState(false);
-  const [preferredLang, setPreferredLang] = useState(null);
-  const [detectedLang, setDetectedLang] = useState(null);
-
-  const signedIn = !!session;
-  const profileComplete = !!me?.profile_complete;
-
-  // -----------------------------
-  // Auth bootstrap
-  // -----------------------------
-  useEffect(() => {
-    if (!supabase) return;
-
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data?.session || null);
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession || null);
-    });
-
-    return () => sub?.subscription?.unsubscribe?.();
-  }, []);
-
-  // -----------------------------
-  // Load /me when signed in
-  // -----------------------------
-  useEffect(() => {
-    async function load() {
-      if (!signedIn) {
-        setMe(null);
-        return;
-      }
-      try {
-        const data = await apiMe();
-        setMe(data);
-
-        // force profile completion if needed
-        if (data?.signed_in && !data?.profile_complete) setProfileOpen(true);
-      } catch (e) {
-        setError(e.message || "Failed to load user info.");
-      }
-    }
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signedIn]);
-
-  // Force auth before any use
-  useEffect(() => {
-    if (!signedIn) setAuthOpen(true);
-  }, [signedIn]);
-
-  // -----------------------------
-  // Handlers
-  // -----------------------------
-  async function handleSaveProfile(profile) {
-    await apiSaveProfile(profile);
-    const data = await apiMe();
-    setMe(data);
-  }
-
-  async function handleUpload(file) {
-    setError("");
-    setBusy(true);
-    setResult(null);
+  const [lastExtracted, setLastExtracted] = useState("");
+  const [lastResult, setLastResult] = useState(null);
+  const [history, setHistory] = useState(() => {
     try {
-      const out = await apiExtract(file); // expects { text, meta }
-      const t = out?.text || "";
-      setExtractedText(t);
-
-      // Optional: naive language detection prompt trigger
-      const hasArabic = /[\u0600-\u06FF]/.test(t);
-      const lang = hasArabic ? "Arabic" : "English";
-      setDetectedLang(lang);
-
-      // Ask permission to respond in detected language
-      setLangPromptOpen(true);
-    } catch (e) {
-      if (e.message === "PROFILE_REQUIRED") setProfileOpen(true);
-      else if ((e.message || "").includes("Sign in required")) setAuthOpen(true);
-      else setError(`Upload/extraction failed: ${e.message}`);
-    } finally {
-      setBusy(false);
+      return JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+    } catch {
+      return [];
     }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(LS_LANG, lang);
+  }, [lang]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_KEY, JSON.stringify(history.slice(0, 80)));
+  }, [history]);
+
+  function onProgress(open, idx, steps) {
+    setProgressOpen(open);
+    setProgressStep(idx || 0);
+    setProgressSteps(steps || []);
   }
 
-  async function handleScan(text) {
-    setError("");
-    setBusy(true);
-    setResult(null);
-    try {
-      const out = await apiAnalyzeText(text, preferredLang);
-      setResult(out);
-    } catch (e) {
-      if (e.message === "PROFILE_REQUIRED") setProfileOpen(true);
-      else if ((e.message || "").includes("Sign in required")) setAuthOpen(true);
-      else setError(e.message || "Scan failed.");
-    } finally {
-      setBusy(false);
-    }
+  function onNewResult({ extractedText, result, source }) {
+    setLastExtracted(extractedText || "");
+    setLastResult(result || null);
+
+    const title =
+      source?.type === "file"
+        ? `File: ${source?.name || "upload"}`
+        : "Pasted text";
+
+    const item = {
+      id: makeId(),
+      createdAt: new Date().toISOString(),
+      title,
+      extractedText: extractedText || "",
+      result: result || null,
+    };
+
+    setHistory((h) => [item, ...h].slice(0, 80));
+    setActive("scan");
   }
 
-  function renderPage() {
-    if (page === "History") return <History me={me} />;
-    if (page === "Pricing") return <Pricing me={me} />;
-    if (page === "About") return <About />;
-    if (page === "FAQ") return <FAQ />;
-    return (
-      <div className="grid gap-6 lg:grid-cols-[1.05fr_.95fr]">
-        <ScanForm
-          apiBase={API_BASE}
-          busy={busy}
-          error={error}
-          extractedText={extractedText}
-          onExtractFile={handleUpload}
-          onScan={handleScan}
-          requireAuth={true}
-          signedIn={signedIn}
-          profileComplete={profileComplete}
-          onOpenAuth={() => setAuthOpen(true)}
-          onOpenProfile={() => setProfileOpen(true)}
-          setExtractedText={setExtractedText}
-        />
-        <ResultsPanel result={result} />
-      </div>
-    );
+  function selectHistoryItem(item) {
+    setLastExtracted(item.extractedText || "");
+    setLastResult(item.result || null);
+    setActive("scan");
   }
+
+  function clearHistory() {
+    setHistory([]);
+  }
+
+  const footerDisclaimer = useMemo(() => {
+    return `${t(lang, "disclaimerTitle")}: ${t(lang, "disclaimer")}`;
+  }, [lang]);
 
   return (
     <div className="min-h-screen">
-      <TopNav
-        page={page}
-        setPage={setPage}
-        pages={PAGES}
-        signedIn={signedIn}
-        userEmail={me?.user?.email || session?.user?.email}
-        profileComplete={profileComplete}
-        onSignIn={() => setAuthOpen(true)}
-        onCompleteProfile={() => setProfileOpen(true)}
-        onSignOut={async () => {
-          if (supabase) await supabase.auth.signOut();
-          setSession(null);
-          setMe(null);
-          setAuthOpen(true);
-        }}
-      />
+      <TopNav active={active} setActive={setActive} lang={lang} setLang={setLang} />
+      <ProgressOverlay open={progressOpen} stepIndex={progressStep} steps={progressSteps} />
 
-      <main className="mx-auto max-w-6xl px-4 pb-20 pt-6">{renderPage()}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6">
+        {active === "scan" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <div className="glass rounded-3xl p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-2xl font-black tracking-tight">Trust & Manipulation Risk Scanner</div>
+                    <div className="mt-2 text-sm text-slate-300">
+                      Upload or paste content. DeedSense extracts text, detects pressure patterns, highlights due diligence gaps,
+                      and generates an investor-grade report with charts and checklists.
+                    </div>
+                  </div>
+                  <div className="pill">API: {getApiBase().replace("https://", "")}</div>
+                </div>
+              </div>
 
-      <AuthModal
-        open={authOpen}
-        onClose={() => setAuthOpen(false)}
-        onAuthed={(sess) => {
-          setSession(sess);
-          setAuthOpen(false);
-        }}
-      />
+              <ScanForm
+                lang={lang}
+                onResult={onNewResult}
+                onProgress={onProgress}
+              />
+            </div>
 
-      <ProfileModal
-        open={profileOpen}
-        onClose={() => setProfileOpen(false)}
-        onSave={handleSaveProfile}
-      />
+            <ResultsPanel result={lastResult} extractedText={lastExtracted} />
+          </div>
+        ) : null}
 
-      <LanguagePrompt
-        open={langPromptOpen}
-        detectedLanguage={detectedLang}
-        onClose={() => setLangPromptOpen(false)}
-        onAllow={(lang) => {
-          setPreferredLang(lang);
-          setLangPromptOpen(false);
-        }}
-        onDeny={() => {
-          setPreferredLang(null);
-          setLangPromptOpen(false);
-        }}
-      />
+        {active === "history" ? (
+          <History items={history} onSelect={selectHistoryItem} onClear={clearHistory} />
+        ) : null}
+
+        {active === "pricing" ? <Pricing /> : null}
+        {active === "about" ? <About /> : null}
+        {active === "faq" ? <FAQ /> : null}
+        {active === "chat" ? <Chat lang={lang} contextText={lastExtracted} /> : null}
+
+        <footer className="mt-8 text-xs text-slate-400">
+          <div className="hr mb-4" />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>© {new Date().getFullYear()} DeedSense • MVP build</div>
+            <div className="max-w-3xl">{footerDisclaimer}</div>
+          </div>
+        </footer>
+      </main>
     </div>
   );
 }
