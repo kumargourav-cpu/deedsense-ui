@@ -1,142 +1,112 @@
-import React, { useMemo, useRef, useState } from "react";
+// src/components/ScanForm.jsx
+import React, { useMemo, useState } from "react";
 
 export default function ScanForm({
-  apiBase,
-  token,
-  onResult,
-  onExtractedText,
-  onDetectedLanguageCandidate,
-  preferredLanguage,
+  text,
+  setText,
+  onScan,
+  onUpload,
+  busy,
+  error,
+  freeScansLeft,
+  user,
+  preferredLanguageLabel,
 }) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const fileRef = useRef(null);
+  const [fileName, setFileName] = useState("");
 
-  const canScan = useMemo(() => apiBase && token, [apiBase, token]);
-
-  async function scanText() {
-    setErr(null);
-    setBusy(true);
-    try {
-      const res = await fetch(`${apiBase}/analyze-text`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          ...(preferredLanguage?.iso1 ? { "X-Preferred-Language": preferredLanguage.iso1 } : {})
-        },
-        body: JSON.stringify({ text })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Scan failed");
-      onExtractedText(data.extracted_text || text);
-      onResult(data);
-      onDetectedLanguageCandidate(data.extracted_text || text);
-    } catch (e) {
-      setErr(String(e.message || e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function scanFile() {
-    setErr(null);
-    setBusy(true);
-    try {
-      const file = fileRef.current?.files?.[0];
-      if (!file) throw new Error("Choose a file first.");
-
-      const fd = new FormData();
-      fd.append("file", file);
-
-      const res = await fetch(`${apiBase}/extract-and-analyze`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Upload scan failed");
-
-      onExtractedText(data.extracted_text || "");
-      onResult(data);
-      onDetectedLanguageCandidate(data.extracted_text || "");
-    } catch (e) {
-      setErr(String(e.message || e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const canScan = useMemo(() => (text || "").trim().length >= 30, [text]);
 
   return (
-    <div className="rounded-3xl bg-white/5 p-5 ring-1 ring-white/10 backdrop-blur-xl">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="glass rounded-3xl p-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="text-base font-semibold text-white">Scan a Listing / Deed / Message</div>
-          <div className="mt-1 text-sm text-slate-400">
-            Upload PDF/DOCX/Image or paste text. Works best for investor communications & terms.
+          <div className="text-lg font-extrabold">Scan a Listing / Deed / Broker Message</div>
+          <div className="mt-1 text-sm text-slate-300">
+            UAE + international property investors • detect manipulation • summarize risks • due diligence checklist
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="badge">Preferred reply: <b className="ml-1">{preferredLanguageLabel}</b></span>
+            <span className="badge">{user ? "Signed in" : "Guest mode"}</span>
+            <span className="badge">Free scans left: <b className="ml-1">{freeScansLeft}</b></span>
           </div>
         </div>
-        <div className="text-xs text-slate-400">
-          API: <span className="text-slate-200">{apiBase || "Not set"}</span>
+
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300 md:max-w-sm">
+          <div className="font-semibold text-slate-200">Disclaimer</div>
+          <div className="mt-1">
+            DeedSense provides a risk signal based on text patterns and AI analysis. It is not legal advice,
+            not a guarantee, and must be verified via official documents and due diligence.
+          </div>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl bg-black/20 p-4 ring-1 ring-white/10">
-          <div className="text-sm font-semibold text-white">Upload (PDF / DOCX / PNG / JPG / TXT)</div>
-          <div className="mt-2">
+      <div className="hr" />
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <div className="label mb-2">Upload (PDF / DOCX / JPG / PNG)</div>
+          <div className="flex items-center gap-2">
             <input
-              ref={fileRef}
+              className="input"
               type="file"
-              accept=".pdf,.docx,.txt,.png,.jpg,.jpeg"
-              className="w-full rounded-xl bg-white/5 p-3 text-sm text-slate-200 ring-1 ring-white/10"
+              accept=".pdf,.doc,.docx,image/jpeg,image/png,text/plain"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                setFileName(f.name);
+                onUpload(f);
+              }}
             />
           </div>
-          <button
-            onClick={scanFile}
-            disabled={!canScan || busy}
-            className="mt-3 w-full rounded-2xl bg-emerald-500/15 px-4 py-3 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-300/25 hover:bg-emerald-500/20 disabled:opacity-40"
-          >
-            {busy ? "Working..." : "Upload & Scan"}
-          </button>
-          {!canScan && (
-            <div className="mt-2 text-xs text-amber-200/80">
-              Sign in is required for scanning. (OTP login)
-            </div>
-          )}
+          <div className="mt-2 text-xs text-slate-400">
+            Upload triggers safe text extraction (OCR for images/scanned PDFs if your backend supports it).
+            <span className="ml-2 text-slate-500">{fileName ? `Selected: ${fileName}` : ""}</span>
+          </div>
         </div>
 
-        <div className="rounded-2xl bg-black/20 p-4 ring-1 ring-white/10">
-          <div className="text-sm font-semibold text-white">Paste text</div>
+        <div>
+          <div className="label mb-2">Paste content</div>
           <textarea
+            className="input min-h-[140px] resize-y"
+            placeholder="Paste listing description, broker message, deed notes, payment plan terms, WhatsApp chat, etc..."
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Paste listing description, broker messages, payment terms, WhatsApp chat, etc..."
-            rows={7}
-            className="mt-2 w-full resize-none rounded-2xl bg-white/5 p-3 text-sm text-slate-100 ring-1 ring-white/10 outline-none placeholder:text-slate-500 focus:ring-emerald-300/25"
           />
-          <button
-            onClick={scanText}
-            disabled={!canScan || busy || !text.trim()}
-            className="mt-3 w-full rounded-2xl bg-white/10 px-4 py-3 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/12 disabled:opacity-40"
-          >
-            {busy ? "Working..." : "Scan pasted text"}
-          </button>
+          <div className="mt-2 text-xs text-slate-400">
+            Tip: paste the broker’s message + payment plan + any urgency language + commission notes.
+          </div>
         </div>
       </div>
 
-      {err && (
-        <div className="mt-4 rounded-2xl bg-red-500/10 p-4 text-sm text-red-100 ring-1 ring-red-400/20">
-          {err}
+      {error ? (
+        <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          <b>Error:</b> {error}
         </div>
-      )}
+      ) : null}
 
-      <div className="mt-4 rounded-2xl bg-white/5 p-4 text-xs text-slate-400 ring-1 ring-white/10">
-        <div className="font-semibold text-slate-200">Disclaimer</div>
-        DeedSense provides risk signals based on patterns + AI logic. It is not legal advice and not a guarantee.
-        Always verify via official documents, escrow/payment proof, and legal due diligence.
+      <div className="mt-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="text-xs text-slate-400">
+          Usage note: Always verify via official documents, escrow/payment proof, RERA/authority checks,
+          and legal due diligence.
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost"
+            onClick={() => setText("")}
+            disabled={busy}
+          >
+            Clear
+          </button>
+          <button
+            className="btn-primary"
+            onClick={onScan}
+            disabled={busy || !canScan || (!user && freeScansLeft <= 0)}
+            title={!canScan ? "Paste at least ~30 characters to scan" : ""}
+          >
+            {busy ? "Scanning..." : user ? "Scan Now" : `Scan (Free ${freeScansLeft})`}
+          </button>
+        </div>
       </div>
     </div>
   );
