@@ -1,69 +1,55 @@
 // src/api.js
 
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
   "https://deedsense-api.onrender.com";
 
-// Generic request handler
-async function apiRequest(endpoint, options = {}) {
+async function parseError(res) {
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      credentials: "include",
-      headers: {
-        ...(options.headers || {}),
-      },
-      ...options,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || "API request failed");
+    const data = await res.json();
+    return data?.detail || data?.error || JSON.stringify(data);
+  } catch {
+    try {
+      return await res.text();
+    } catch {
+      return "Unknown error";
     }
-
-    return await response.json();
-  } catch (error) {
-    console.error("API Error:", error);
-    throw error;
   }
 }
 
-// ===============================
-// TEXT SCAN
-// ===============================
-export async function scanText(text) {
-  if (!text || text.trim().length === 0) {
-    throw new Error("No text provided for scan.");
-  }
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`;
+  const res = await fetch(url, {
+    ...options,
+    // If you later use cookie sessions, keep credentials enabled:
+    credentials: "include",
+  });
 
-  return apiRequest("/analyze", {
+  if (!res.ok) {
+    const msg = await parseError(res);
+    throw new Error(`${res.status} ${res.statusText}: ${msg}`);
+  }
+  return res.json();
+}
+
+export async function health() {
+  return request("/health", { method: "GET" });
+}
+
+export async function extractFile(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+
+  return request("/extract", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    body: fd,
+  });
+}
+
+export async function analyzeText(text) {
+  return request("/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
-}
-
-// ===============================
-// FILE UPLOAD (PDF / DOCX / IMAGE)
-// ===============================
-export async function extractFile(file) {
-  if (!file) {
-    throw new Error("No file selected.");
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  return apiRequest("/extract", {
-    method: "POST",
-    body: formData,
-  });
-}
-
-// ===============================
-// HEALTH CHECK
-// ===============================
-export async function checkHealth() {
-  return apiRequest("/health");
 }
