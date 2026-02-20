@@ -2,56 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* You can keep your custom global styles below */
 :root {
   color-scheme: dark;
-}
-
-body {
-  @apply bg-slate-950 text-slate-100;
-}
-
-.glass {
-  @apply bg-white/5 backdrop-blur-xl border border-white/10 shadow-glow;
-}
-
-.btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition;
-}
-
-.btn-primary {
-  @apply btn bg-white text-slate-950 hover:bg-slate-100;
-}
-
-.btn-ghost {
-  @apply btn bg-white/0 border border-white/10 hover:bg-white/5;
-}
-
-.pill {
-  @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200;
-}
-
-.input {
-  @apply w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/20;
-}
-
-.textarea {
-  @apply w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/20 min-h-[160px];
-}
-
-.label {
-  @apply text-xs font-semibold uppercase tracking-wide text-slate-300;
-}
-
-.hr {
-  @apply border-t border-white/10;
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-30%); opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { transform: translateX(30%); opacity: 0.6; }
-}
-
-.shimmer {
-  animation: shimmer 1.6s ease-in-out infinite;
 }
