@@ -1,100 +1,65 @@
-// src/components/TopNav.jsx
 import React from "react";
+import Logo from "./Logo.jsx";
+import { LANGS, t } from "../lib/i18n.js";
 
-export default function TopNav({
-  brand = "DeedSense",
-  active,
-  setActive,
-  user,
-  onSignIn,
-  onSignOut,
-  freeScansLeft,
-}) {
+export default function TopNav({ active, setActive, lang, setLang }) {
   const tabs = [
-    { key: "scan", label: "Scan" },
-    { key: "history", label: "History" },
-    { key: "pricing", label: "Pricing" },
-    { key: "about", label: "About" },
-    { key: "faq", label: "FAQs" },
+    { key: "scan", label: t(lang, "scan") },
+    { key: "history", label: t(lang, "history") },
+    { key: "pricing", label: t(lang, "pricing") },
+    { key: "about", label: t(lang, "about") },
+    { key: "faq", label: t(lang, "faq") },
+    { key: "chat", label: t(lang, "chat") },
   ];
 
   return (
-    <div className="sticky top-0 z-50 border-b border-white/10 bg-black/20 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-        <button
-          className="flex items-center gap-3"
-          onClick={() => setActive("scan")}
-          title="Go to Scan"
-        >
-          <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-sky-500/90 to-violet-500/90 p-[1px]">
-            <div className="glass flex h-full w-full items-center justify-center rounded-2xl">
-              <span className="text-sm font-black tracking-tight">DS</span>
-            </div>
-          </div>
-          <div className="text-left leading-tight">
-            <div className="text-sm font-extrabold tracking-tight">{brand}</div>
-            <div className="text-[11px] text-slate-400">
-              Trust & Manipulation Risk Scanner for Property Investors
-            </div>
-          </div>
-        </button>
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
+      <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-4">
+        <Logo />
 
-        <div className="hidden items-center gap-2 md:flex">
-          {tabs.map((t) => (
+        <nav className="hidden md:flex items-center gap-1 ml-4">
+          {tabs.map((tab) => (
             <button
-              key={t.key}
-              onClick={() => setActive(t.key)}
-              className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                active === t.key
-                  ? "bg-white/10 text-white"
-                  : "text-slate-300 hover:bg-white/5"
+              key={tab.key}
+              onClick={() => setActive(tab.key)}
+              className={`px-3 py-2 rounded-xl text-sm font-semibold transition ${
+                active === tab.key ? "bg-white text-slate-950" : "hover:bg-white/5 text-slate-200"
               }`}
             >
-              {t.label}
+              {tab.label}
             </button>
           ))}
-        </div>
+        </nav>
 
-        <div className="flex items-center gap-2">
-          <span className="badge hidden sm:inline-flex">
-            Free scans: <b className="ml-1">{freeScansLeft}</b>
-          </span>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="hidden sm:block text-xs text-slate-400 mr-2">{t(lang, "language")}</div>
+          <select
+            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none"
+            value={lang}
+            onChange={(e) => setLang(e.target.value)}
+          >
+            {LANGS.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name}
+              </option>
+            ))}
+          </select>
 
-          {user ? (
-            <>
-              <span className="hidden md:inline-flex text-xs text-slate-300">
-                {user.email}
-              </span>
-              <button className="btn-ghost" onClick={onSignOut}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <button className="btn-primary" onClick={onSignIn}>
-              Sign in
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Mobile tabs */}
-      <div className="mx-auto max-w-6xl px-4 pb-3 md:hidden">
-        <div className="glass flex flex-wrap gap-2 rounded-2xl p-2">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setActive(t.key)}
-              className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                active === t.key
-                  ? "bg-white/10 text-white"
-                  : "text-slate-300 hover:bg-white/5"
-              }`}
+          <div className="md:hidden">
+            <select
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none"
+              value={active}
+              onChange={(e) => setActive(e.target.value)}
             >
-              {t.label}
-            </button>
-          ))}
+              {tabs.map((tab) => (
+                <option key={tab.key} value={tab.key}>
+                  {tab.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
-    </div>
+    </header>
   );
 }
