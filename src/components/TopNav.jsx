@@ -1,58 +1,61 @@
 import React from "react";
-import { NavLink } from "react-router-dom";
 import Logo from "./Logo.jsx";
 
-const NavItem = ({ to, children }) => (
-  <NavLink
-    to={to}
-    className={({ isActive }) =>
-      `px-3 py-2 rounded-full text-sm transition border ${
-        isActive
-          ? "border-white/15 bg-white/10 text-white"
-          : "border-transparent text-slate-300 hover:text-white hover:bg-white/5"
-      }`
-    }
-  >
-    {children}
-  </NavLink>
-);
+export default function TopNav({ active, setActive }) {
+  const items = [
+    { key: "scan", label: "Scan" },
+    { key: "history", label: "Scan History" },
+    { key: "pricing", label: "Pricing" },
+    { key: "about", label: "About" },
+    { key: "faq", label: "FAQ" },
+  ];
 
-export default function TopNav({ language, onLanguageChange, langs }) {
   return (
-    <div className="sticky top-0 z-50">
-      <div className="bg-slate-950/70 backdrop-blur-xl border-b border-white/10">
-        <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between gap-3">
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-black/40 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3">
           <Logo />
-          <div className="hidden md:flex items-center gap-1">
-            <NavItem to="/">Scan</NavItem>
-            <NavItem to="/history">History</NavItem>
-            <NavItem to="/pricing">Pricing</NavItem>
-            <NavItem to="/about">About</NavItem>
-            <NavItem to="/faq">FAQ</NavItem>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="label">Language</span>
-              <select
-                className="input !py-2 !rounded-full !text-xs"
-                value={language}
-                onChange={(e) => onLanguageChange(e.target.value)}
-              >
-                {langs.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
+          <div className="hidden sm:block">
+            <div className="text-sm font-extrabold tracking-wide text-white">
+              DeedSense
             </div>
-
-            <div className="md:hidden">
-              <NavLink to="/" className="btn-ghost !py-2 !px-3">Scan</NavLink>
+            <div className="text-xs text-slate-400">
+              Trust & Manipulation Risk Scanner
             </div>
           </div>
         </div>
+
+        <nav className="hidden md:flex items-center gap-1">
+          {items.map((it) => (
+            <button
+              key={it.key}
+              onClick={() => setActive(it.key)}
+              className={
+                "rounded-xl px-3 py-2 text-sm transition " +
+                (active === it.key
+                  ? "bg-white/10 text-white"
+                  : "text-slate-300 hover:bg-white/5 hover:text-white")
+              }
+            >
+              {it.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="md:hidden">
+          <select
+            className="rounded-xl bg-white/5 px-3 py-2 text-sm text-white outline-none ring-1 ring-white/10"
+            value={active}
+            onChange={(e) => setActive(e.target.value)}
+          >
+            {items.map((it) => (
+              <option key={it.key} value={it.key}>
+                {it.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-    </div>
+    </header>
   );
 }
