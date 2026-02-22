@@ -1,154 +1,158 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Routes, Route, useNavigate } from "react-router-dom";
 import TopNav from "./components/TopNav.jsx";
+import ProgressOverlay from "./components/ProgressOverlay.jsx";
 import ScanForm from "./components/ScanForm.jsx";
 import ResultsPanel from "./components/ResultsPanel.jsx";
-import ProgressOverlay from "./components/ProgressOverlay.jsx";
-import LanguagePrompt from "./components/LanguagePrompt.jsx";
-
-import History from "./pages/History.jsx";
-import Pricing from "./pages/Pricing.jsx";
 import About from "./pages/About.jsx";
+import Pricing from "./pages/Pricing.jsx";
 import FAQ from "./pages/FAQ.jsx";
-import Chat from "./pages/Chat.jsx";
+import History from "./pages/History.jsx";
+import { LANGS } from "./lib/i18n.js";
+import { apiHealth } from "./lib/api.js";
 
-import { apiHealth, analyzeText, extractAndAnalyze } from "./lib/api.js";
-import { downloadReportPDF } from "./lib/pdf.js";
-import { detectLanguageRough } from "./lib/i18n.js";
+const LS_KEY = "deedsense_history_v1";
+
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(items) {
+  localStorage.setItem(LS_KEY, JSON.stringify(items.slice(0, 120)));
+}
 
 export default function App() {
-  const [tab, setTab] = useState("scan");
-  const [lang, setLang] = useState("auto");
-  const [busy, setBusy] = useState(false);
-
-  const [progressOpen, setProgressOpen] = useState(false);
-  const [progressIndex, setProgressIndex] = useState(0);
-
+  const [language, setLanguage] = useState("en");
   const [health, setHealth] = useState(null);
-  const [err, setErr] = useState("");
-  const [data, setData] = useState(null);
-  const [extractedText, setExtractedText] = useState("");
 
+  const [overlay, setOverlay] = useState({ open: false, step: 0 });
   const steps = useMemo(
-    () => ["Preparing request", "Extracting text (OCR if needed)", "Analyzing risk signals", "Building report"],
+    () => ["Uploading / reading input", "Extracting text (OCR if needed)", "Detecting signals", "Scoring categories", "Generating report"],
     []
   );
 
+  const [result, setResult] = useState(null);
+
+  const [history, setHistory] = useState(loadHistory());
+  const navigate = useNavigate();
+
   useEffect(() => {
-    (async () => {
-      try {
-        const h = await apiHealth();
-        setHealth(h);
-      } catch {
-        setHealth(null);
-      }
-    })();
+    apiHealth().then(setHealth).catch(() => setHealth(null));
   }, []);
 
-  async function runScanText(text) {
-    setErr("");
-    setBusy(true);
-    setProgressOpen(true);
-    setProgressIndex(0);
-
-    try {
-      setProgressIndex(1);
-      const chosen = lang === "auto" ? detectLanguageRough(text) : lang;
-      setProgressIndex(2);
-
-      const d = await analyzeText({ text, lang: chosen });
-      setExtractedText(d.extracted_text || text);
-      setData(d);
-
-      setProgressIndex(3);
-      setTimeout(() => setProgressOpen(false), 350);
-    } catch (e) {
-      setErr(e?.message || "Scan failed");
-      setProgressOpen(false);
-    } finally {
-      setBusy(false);
-    }
+  function onResult(data) {
+    setResult(data);
+    setOverlay({ open: false, step: 0 });
+    navigate("/");
   }
 
-  async function runScanFile(file) {
-    setErr("");
-    setBusy(true);
-    setProgressOpen(true);
-    setProgressIndex(0);
+  function saveCurrentToHistory() {
+    if (!result) return;
+    const item = {
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+      filename: result.filename || null,
+      input_type: result.input_type || "text",
+      extracted_text: result.extracted_text || "",
+      analysis: result.analysis || {},
+      signals: result.signals || [],
+      checklist: result.checklist || {},
+      charts: result.charts || {},
+      meta: result.meta || {}
+    };
+    const next = [item, ...history];
+    setHistory(next);
+    saveHistory(next);
+    alert("Saved to history ✅");
+  }
 
-    try {
-      setProgressIndex(1);
-      const chosen = lang === "auto" ? "auto" : lang;
+  function openHistoryItem(item) {
+    setResult({
+      filename: item.filename,
+      input_type: item.input_type,
+      detected_language: item.meta?.detected_language || "en",
+      preferred_language: item.meta?.preferred_language || language,
+      extracted_text: item.extracted_text,
+      analysis: item.analysis,
+      charts: item.charts,
+      checklist: item.checklist,
+      signals: item.signals,
+      meta: item.meta
+    });
+    navigate("/");
+  }
 
-      setProgressIndex(2);
-      const d = await extractAndAnalyze({ file, lang: chosen });
-
-      setExtractedText(d.extracted_text || "");
-      setData(d);
-
-      setProgressIndex(3);
-      setTimeout(() => setProgressOpen(false), 350);
-    } catch (e) {
-      setErr(e?.message || "Upload/extraction failed");
-      setProgressOpen(false);
-    } finally {
-      setBusy(false);
-    }
+  function clearHistory() {
+    if (!confirm("Clear history saved in this browser?")) return;
+    setHistory([]);
+    saveHistory([]);
   }
 
   return (
-    <div>
-      <TopNav tab={tab} setTab={setTab} />
+    <div className="min-h-screen">
+      <div className="fixed inset-0 -z-10 bg-noise" />
+      <TopNav language={language} onLanguageChange={setLanguage} langs={LANGS} />
 
-      <div className="mx-auto max-w-6xl px-4 py-6 grid gap-4">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-1 space-y-4">
-            <LanguagePrompt lang={lang} setLang={setLang} />
+      <ProgressOverlay open={overlay.open} stepIndex={overlay.step} steps={steps} />
 
-            <div className="card">
-              <div className="label">API</div>
-              <div className="mt-1 text-sm text-slate-200">
-                {import.meta.env.VITE_API_BASE_URL || "https://deedsense-api.onrender.com"}
-              </div>
-              <div className="mt-3 text-xs text-slate-400">
-                Health: {health?.ok ? "OK" : "Unknown"} • OCR: {health?.ocr ? "Enabled" : "Unknown"}
-              </div>
-            </div>
-
-            {err ? (
-              <div className="card border border-red-500/30">
-                <div className="text-sm font-semibold text-red-200">Error</div>
-                <div className="mt-2 text-sm text-red-100">{err}</div>
-              </div>
-            ) : null}
+      <div className="mx-auto max-w-6xl px-4 py-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="pill">
+            API: <span className="ml-1 opacity-90">{import.meta.env.VITE_API_BASE_URL || "localhost"}</span>
           </div>
-
-          <div className="lg:col-span-2 space-y-4">
-            {tab === "scan" ? (
-              <>
-                <ScanForm busy={busy} onScanText={runScanText} onScanFile={runScanFile} />
-                <ResultsPanel
-                  data={data}
-                  extractedText={extractedText}
-                  onDownloadPDF={() => downloadReportPDF({ title: "DeedSense Report" })}
-                />
-              </>
-            ) : null}
-
-            {tab === "history" ? <History /> : null}
-            {tab === "pricing" ? <Pricing /> : null}
-            {tab === "about" ? <About /> : null}
-            {tab === "faq" ? <FAQ /> : null}
-            {tab === "chat" ? <Chat /> : null}
+          <div className="flex gap-2">
+            <span className="pill">PDF reports</span>
+            <span className="pill">OCR enabled</span>
+            <span className="pill">Local history</span>
+            {health?.ok ? <span className="pill">API online</span> : <span className="pill">API status unknown</span>}
           </div>
         </div>
 
-        <div className="text-xs text-slate-400 mt-4">
-          Disclaimer: DeedSense provides a risk signal based on text patterns and analysis. It is not legal advice, not a guarantee,
-          and should be validated with official documents and independent due diligence.
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <div className="grid lg:grid-cols-2 gap-4">
+                <ScanForm
+                  language={language}
+                  onResult={(data) => {
+                    // show overlay briefly in UI (client animation)
+                    setOverlay({ open: true, step: 0 });
+                    const timer = setInterval(() => {
+                      setOverlay((s) => {
+                        const next = Math.min(steps.length - 1, s.step + 1);
+                        return { open: true, step: next };
+                      });
+                    }, 650);
+
+                    setTimeout(() => {
+                      clearInterval(timer);
+                      onResult(data);
+                    }, 2600);
+                  }}
+                />
+                <ResultsPanel result={result} history={history} onSaveToHistory={saveCurrentToHistory} />
+              </div>
+            }
+          />
+          <Route path="/history" element={<History items={history} onOpen={openHistoryItem} onClear={clearHistory} />} />
+          <Route path="/pricing" element={<Pricing />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/faq" element={<FAQ />} />
+        </Routes>
+
+        <div className="mt-8 text-center text-xs text-slate-400">
+          <div>
+            Disclaimer: DeedSense provides a risk signal based on text patterns and structured scoring. It is not legal advice,
+            not a guarantee, and must be validated with official documents and due diligence.
+          </div>
+          <div className="mt-2">© {new Date().getFullYear()} DeedSense • MVP on Render</div>
         </div>
       </div>
-
-      <ProgressOverlay open={progressOpen} title="Analyzing…" steps={steps} activeIndex={progressIndex} />
     </div>
   );
 }
