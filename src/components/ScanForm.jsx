@@ -1,305 +1,248 @@
 // src/components/ScanForm.jsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiExtract, apiScan } from "../lib/api.js";
 
-const DEFAULT_LANG = "Auto";
+const LS_DRAFT = "deedsense_draft_v1";
+const LS_LAST = "deedsense_last_result_v1";
 
-const LANGS = ["Auto", "English", "Arabic", "Hindi", "Urdu", "French", "German", "Italian", "Spanish"];
+function humanErr(e) {
+  if (!e) return "Unknown error.";
+  if (typeof e === "string") return e;
+  return e?.message || e?.detail || JSON.stringify(e);
+}
 
-export default function ScanForm({ canScan, plan, freeLeft, setBusy, setBusySteps, onComplete }) {
+async function withTimeout(promise, ms = 60000) {
+  let t;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error(`Request timed out after ${Math.round(ms / 1000)}s`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export default function ScanForm({
+  language,
+  plan,
+  onResult,
+  setProgress, // expects: (obj) => void
+}) {
   const fileRef = useRef(null);
 
-  const [mode, setMode] = useState("text"); // text|file
-  const [language, setLanguage] = useState(DEFAULT_LANG);
-
-  const [text, setText] = useState("");
   const [file, setFile] = useState(null);
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  // Meta fields (enterprise-ready)
+  // Optional “enterprise” metadata (kept lightweight)
   const [folder, setFolder] = useState("");
-  const [property, setProperty] = useState("");
   const [developer, setDeveloper] = useState("");
   const [country, setCountry] = useState("");
   const [project, setProject] = useState("");
-  const [tags, setTags] = useState("");
 
-  const [error, setError] = useState("");
-  const [extractedPreview, setExtractedPreview] = useState(""); // show extracted text
+  const canScan = useMemo(() => {
+    if (busy) return false;
+    if (file) return true;
+    return (text || "").trim().length >= 20;
+  }, [busy, file, text]);
 
-  const disabledReason = useMemo(() => {
-    if (!canScan) return "Free scans limit reached. Switch to Pro/Enterprise to continue (no payment required for now).";
-    if (mode === "text" && text.trim().length < 20) return "Paste at least 20 characters to scan.";
-    if (mode === "file" && !file) return "Upload a file to scan.";
-    return "";
-  }, [canScan, mode, text, file]);
+  // restore draft on load
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_DRAFT);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d?.text) setText(d.text);
+      if (d?.folder) setFolder(d.folder);
+      if (d?.developer) setDeveloper(d.developer);
+      if (d?.country) setCountry(d.country);
+      if (d?.project) setProject(d.project);
+    } catch {}
+  }, []);
 
-  function buildMeta(extra = {}) {
-    return {
-      folder: folder.trim() || null,
-      property: property.trim() || null,
-      developer: developer.trim() || null,
-      country: country.trim() || null,
-      project: project.trim() || null,
-      tags: tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      ...extra,
-    };
+  // persist draft
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        LS_DRAFT,
+        JSON.stringify({ text, folder, developer, country, project })
+      );
+    } catch {}
+  }, [text, folder, developer, country, project]);
+
+  function openProgress(title, steps, activeIndex, detail) {
+    setProgress?.({ open: true, title, steps, activeIndex, detail });
   }
 
-  function setSteps(arr) {
-    setBusySteps(arr.map((label) => ({ label, done: false })));
+  function updateProgress(activeIndex, detail) {
+    setProgress?.((prev) => ({ ...(prev || {}), open: true, activeIndex, detail }));
   }
 
-  function markStepDone(idx) {
-    setBusySteps((prev) => prev.map((s, i) => (i === idx ? { ...s, done: true } : s)));
+  function closeProgress() {
+    setProgress?.({ open: false });
   }
 
-  async function run() {
+  function clearAll() {
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+    setText("");
     setError("");
-    setExtractedPreview("");
+    try {
+      localStorage.removeItem(LS_DRAFT);
+    } catch {}
+  }
 
+  async function handleScan() {
+    setError("");
     setBusy(true);
 
+    const steps = file
+      ? ["Validating file", "Extracting text (OCR if needed)", "Analyzing signals", "Building report"]
+      : ["Validating input", "Analyzing signals", "Building report"];
+
     try {
-      if (mode === "file") {
-        setSteps([
-          "Uploading file securely…",
-          "Extracting text (PDF/DOCX/OCR)…",
-          "Analyzing manipulation patterns…",
-          "Generating risk breakdown + charts…",
-          "Finalizing report…",
-        ]);
+      openProgress("Scanning…", steps, 0, file ? "Preparing file upload…" : "Preparing text…");
 
+      const meta = { folder, developer, country, project };
+
+      let extractedText = (text || "").trim();
+
+      if (file) {
         // 1) extract
-        const ex = await apiExtract(file);
-        markStepDone(0);
-        markStepDone(1);
+        updateProgress(0, "Uploading file…");
+        const extractRes = await withTimeout(
+          apiExtract({ file, language, plan, meta }),
+          90000
+        );
 
-        const extracted = ex?.extracted_text || "";
-        setExtractedPreview(extracted.slice(0, 1400));
+        extractedText =
+          extractRes?.extracted_text ||
+          extractRes?.text ||
+          extractRes?.raw_text ||
+          "";
 
-        // 2) scan (some APIs return result already; but we also support separate /scan)
-        let payload = ex;
+        extractedText = (extractedText || "").trim();
 
-        // If extract endpoint does NOT return result, call scan:
-        if (!payload?.result) {
-          const sc = await apiScan({
-            text: extracted,
-            language,
-            meta: buildMeta({ input_type: ex?.input_type, filename: ex?.filename }),
-          });
-          payload = { ...ex, ...sc, extracted_text: extracted, result: sc?.result || sc };
+        if (!extractedText || extractedText.length < 10) {
+          throw new Error("No readable text found in the upload. Try a clearer scan or a text-based PDF.");
         }
 
-        markStepDone(2);
-        markStepDone(3);
-        markStepDone(4);
+        // put extracted text into the textbox so user can see it and it persists
+        setText(extractedText);
 
-        onComplete(payload, buildMeta({ input_type: ex?.input_type, filename: ex?.filename }));
+        updateProgress(1, "Text extracted. Running analysis…");
       } else {
-        setSteps([
-          "Normalizing text…",
-          "Analyzing manipulation patterns…",
-          "Scoring risk + confidence…",
-          "Generating insights + charts…",
-          "Finalizing report…",
-        ]);
-
-        const sc = await apiScan({
-          text,
-          language,
-          meta: buildMeta({ input_type: "text" }),
-        });
-
-        markStepDone(0);
-        markStepDone(1);
-        markStepDone(2);
-        markStepDone(3);
-        markStepDone(4);
-
-        onComplete(
-          { extracted_text: text, result: sc?.result || sc, input_type: "text", filename: null },
-          buildMeta({ input_type: "text" })
-        );
+        updateProgress(0, "Running analysis…");
       }
+
+      // 2) scan
+      const scanRes = await withTimeout(
+        apiScan({ text: extractedText, language, plan, meta }),
+        90000
+      );
+
+      updateProgress(file ? 2 : 1, "Generating charts & report…");
+
+      // persist last result (so refresh keeps it)
+      try {
+        localStorage.setItem(LS_LAST, JSON.stringify({ at: Date.now(), scanRes }));
+      } catch {}
+
+      // send up to App
+      onResult?.(scanRes);
+
+      updateProgress(file ? 3 : 2, "Done.");
+      closeProgress();
     } catch (e) {
-      setError(e?.message || String(e));
+      closeProgress();
+      setError(humanErr(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-[0_0_0_1px_rgba(255,255,255,0.05)] backdrop-blur">
-      <div className="flex items-start justify-between gap-3">
+    <div className="glass rounded-3xl p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="text-lg font-extrabold">Scan a Listing / Deed / Message</div>
+          <div className="text-lg font-extrabold text-white">Scan a Listing / Deed / Message</div>
           <div className="mt-1 text-sm text-slate-300">
-            UAE + international investors • detect manipulation • summarize risks • evidence highlighting
-          </div>
-          <div className="mt-2 text-xs text-slate-400">
-            Plan: <span className="text-slate-200 font-semibold">{plan.toUpperCase()}</span>
-            {plan === "basic" ? (
-              <> • Free scans left: <span className="text-slate-200 font-semibold">{freeLeft}</span></>
-            ) : (
-              <> • Unlimited scans (selection-based for now)</>
-            )}
+            Upload a file (PDF/DOCX/TXT/PNG/JPG) or paste text. DeedSense extracts + highlights risk signals.
           </div>
         </div>
-      </div>
 
-      {/* Mode */}
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          className={`rounded-2xl px-3 py-2 text-sm font-semibold border ${
-            mode === "text"
-              ? "border-white/20 bg-white/10"
-              : "border-white/10 bg-transparent hover:bg-white/5"
-          }`}
-          onClick={() => setMode("text")}
-        >
-          Paste text
-        </button>
-        <button
-          className={`rounded-2xl px-3 py-2 text-sm font-semibold border ${
-            mode === "file"
-              ? "border-white/20 bg-white/10"
-              : "border-white/10 bg-transparent hover:bg-white/5"
-          }`}
-          onClick={() => setMode("file")}
-        >
-          Upload file
-        </button>
-      </div>
-
-      {/* Language */}
-      <div className="mt-4">
-        <div className="text-xs font-semibold text-slate-300 mb-1">Output language</div>
-        <select
-          className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-          value={language}
-          onChange={(e) => setLanguage(e.target.value)}
-        >
-          {LANGS.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
-        <div className="mt-2 text-xs text-slate-400">
-          “Auto” will keep output in the dominant language detected in your text (best effort).
+        <div className="flex gap-2">
+          <button className="btn-ghost" onClick={clearAll} disabled={busy}>
+            Clear
+          </button>
+          <button className="btn-primary" onClick={handleScan} disabled={!canScan}>
+            {busy ? "Scanning…" : plan === "basic" ? "Scan (Basic)" : plan === "pro" ? "Scan (Pro)" : "Scan (Enterprise)"}
+          </button>
         </div>
       </div>
 
-      {/* Inputs */}
-      {mode === "text" ? (
-        <div className="mt-4">
-          <div className="text-xs font-semibold text-slate-300 mb-1">Paste content</div>
-          <textarea
-            className="h-40 w-full resize-none rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-sm outline-none focus:border-white/20"
-            placeholder="Paste listing description, broker message, deed notes, payment plan terms, WhatsApp chat…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-        </div>
-      ) : (
-        <div className="mt-4">
-          <div className="text-xs font-semibold text-slate-300 mb-1">Upload</div>
-          <input
-            ref={fileRef}
-            type="file"
-            className="block w-full text-sm text-slate-300"
-            accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-          />
-          <div className="mt-2 text-xs text-slate-400">
-            Supported: PDF, DOCX, TXT, PNG/JPG (OCR). Scanned PDFs are OCR’d if needed.
-          </div>
-
-          {extractedPreview ? (
-            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs font-semibold text-slate-300">Extracted text preview</div>
-              <div className="mt-2 whitespace-pre-wrap text-xs text-slate-200 max-h-40 overflow-auto">
-                {extractedPreview}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {/* Metadata */}
-      <div className="mt-4 grid grid-cols-1 gap-3">
-        <div className="grid grid-cols-2 gap-3">
-          <input
-            className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-            placeholder="Deal folder (e.g. Marina-Unit-1204)"
-            value={folder}
-            onChange={(e) => setFolder(e.target.value)}
-          />
-          <input
-            className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-            placeholder="Property name (optional)"
-            value={property}
-            onChange={(e) => setProperty(e.target.value)}
-          />
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <input
-            className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-            placeholder="Developer"
-            value={developer}
-            onChange={(e) => setDeveloper(e.target.value)}
-          />
-          <input
-            className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-            placeholder="Country"
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          />
-          <input
-            className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-            placeholder="Project"
-            value={project}
-            onChange={(e) => setProject(e.target.value)}
-          />
-        </div>
-
-        <input
-          className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none"
-          placeholder="Tags (comma-separated) e.g. offplan, payment-plan, urgent"
-          value={tags}
-          onChange={(e) => setTags(e.target.value)}
-        />
-      </div>
-
-      {/* Error */}
       {error ? (
-        <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3 text-sm text-rose-200 whitespace-pre-wrap">
-          {error}
+        <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-100">
+          <div className="font-semibold">Scan failed</div>
+          <div className="mt-1 opacity-90">{error}</div>
+          <div className="mt-2 text-xs text-rose-100/80">
+            Tip: open DevTools → Network → check /extract and /scan responses.
+          </div>
         </div>
       ) : null}
 
-      {/* Actions */}
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="text-xs text-slate-400">
-          Tip: paste broker message + payment plan + urgency language. Always verify with documents.
+      <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="label mb-2">Upload</div>
+          <input
+            ref={fileRef}
+            type="file"
+            className="block w-full text-sm text-slate-200"
+            accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp,application/pdf,image/*,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+          />
+          <div className="mt-2 text-xs text-slate-400">
+            Files don’t persist after refresh — we persist the extracted text + results instead.
+          </div>
         </div>
 
-        <button
-          className={`rounded-2xl px-4 py-2 text-sm font-bold border ${
-            disabledReason
-              ? "cursor-not-allowed border-white/10 bg-white/5 text-slate-500"
-              : "border-white/20 bg-white/10 hover:bg-white/15"
-          }`}
-          onClick={run}
-          disabled={!!disabledReason}
-          title={disabledReason}
-        >
-          Scan
-        </button>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 lg:col-span-2">
+          <div className="label mb-2">Paste content</div>
+          <textarea
+            className="input h-28 resize-none"
+            placeholder="Paste listing description, broker message, payment plan terms, WhatsApp chat, etc…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="mt-2 text-xs text-slate-400">
+            If you upload a file, extracted text will appear here (so you can review evidence highlights).
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-4">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+          <div className="label mb-1">Deal folder</div>
+          <input className="input" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="e.g., Lagoons Santorini 3BR" />
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+          <div className="label mb-1">Developer</div>
+          <input className="input" value={developer} onChange={(e) => setDeveloper(e.target.value)} placeholder="e.g., DAMAC" />
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+          <div className="label mb-1">Country</div>
+          <input className="input" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="e.g., UAE" />
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+          <div className="label mb-1">Project</div>
+          <input className="input" value={project} onChange={(e) => setProject(e.target.value)} placeholder="e.g., Santorini" />
+        </div>
+      </div>
+
+      <div className="mt-4 text-xs text-slate-400">
+        When you click Scan, the system: validates → extracts/OCR (if file) → analyzes signals → generates report + charts.
       </div>
     </div>
   );
