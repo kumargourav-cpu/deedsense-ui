@@ -1,158 +1,217 @@
+// src/App.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Routes, Route, useNavigate } from "react-router-dom";
 import TopNav from "./components/TopNav.jsx";
 import ProgressOverlay from "./components/ProgressOverlay.jsx";
 import ScanForm from "./components/ScanForm.jsx";
 import ResultsPanel from "./components/ResultsPanel.jsx";
+
 import About from "./pages/About.jsx";
 import Pricing from "./pages/Pricing.jsx";
 import FAQ from "./pages/FAQ.jsx";
 import History from "./pages/History.jsx";
-import { LANGS } from "./lib/i18n.js";
-import { apiHealth } from "./lib/api.js";
+import Compare from "./pages/Compare.jsx";
 
-const LS_KEY = "deedsense_history_v1";
+import { apiHealth, apiInfo } from "./lib/api.js";
 
-function loadHistory() {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || "[]");
-  } catch {
-    return [];
-  }
+const LS_HISTORY = "deedsense_history_v3";
+const LS_PLAN = "deedsense_plan_v1";
+
+function monthKey() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function saveHistory(items) {
-  localStorage.setItem(LS_KEY, JSON.stringify(items.slice(0, 120)));
+function defaultUsage() {
+  return { month: monthKey(), used: 0 };
 }
 
 export default function App() {
-  const [language, setLanguage] = useState("en");
-  const [health, setHealth] = useState(null);
-
-  const [overlay, setOverlay] = useState({ open: false, step: 0 });
-  const steps = useMemo(
-    () => ["Uploading / reading input", "Extracting text (OCR if needed)", "Detecting signals", "Scoring categories", "Generating report"],
-    []
-  );
-
+  const [route, setRoute] = useState("scan"); // scan|history|compare|pricing|about|faq
+  const [busy, setBusy] = useState(false);
+  const [busySteps, setBusySteps] = useState([]);
   const [result, setResult] = useState(null);
 
-  const [history, setHistory] = useState(loadHistory());
-  const navigate = useNavigate();
+  const [plan, setPlan] = useState(() => localStorage.getItem(LS_PLAN) || "basic"); // basic|pro|enterprise
+  const [usage, setUsage] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("deedsense_usage_v1") || "null");
+      if (!raw || raw.month !== monthKey()) return defaultUsage();
+      return raw;
+    } catch {
+      return defaultUsage();
+    }
+  });
+
+  const [history, setHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LS_HISTORY) || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const [apiStatus, setApiStatus] = useState({ ok: null, info: null, err: null });
 
   useEffect(() => {
-    apiHealth().then(setHealth).catch(() => setHealth(null));
+    localStorage.setItem(LS_PLAN, plan);
+  }, [plan]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+  }, [history]);
+
+  useEffect(() => {
+    localStorage.setItem("deedsense_usage_v1", JSON.stringify(usage));
+  }, [usage]);
+
+  useEffect(() => {
+    // health ping
+    (async () => {
+      try {
+        const h = await apiHealth();
+        const i = await apiInfo();
+        setApiStatus({ ok: true, info: { ...h, ...i }, err: null });
+      } catch (e) {
+        setApiStatus({ ok: false, info: null, err: e?.message || String(e) });
+      }
+    })();
   }, []);
 
-  function onResult(data) {
-    setResult(data);
-    setOverlay({ open: false, step: 0 });
-    navigate("/");
-  }
+  const freeLimit = 5;
 
-  function saveCurrentToHistory() {
-    if (!result) return;
-    const item = {
-      id: crypto.randomUUID(),
-      createdAt: Date.now(),
-      filename: result.filename || null,
-      input_type: result.input_type || "text",
-      extracted_text: result.extracted_text || "",
-      analysis: result.analysis || {},
-      signals: result.signals || [],
-      checklist: result.checklist || {},
-      charts: result.charts || {},
-      meta: result.meta || {}
-    };
-    const next = [item, ...history];
-    setHistory(next);
-    saveHistory(next);
-    alert("Saved to history ✅");
-  }
+  const canScan = useMemo(() => {
+    if (plan === "basic") {
+      const mk = monthKey();
+      const used = usage.month === mk ? usage.used : 0;
+      return used < freeLimit;
+    }
+    return true;
+  }, [plan, usage]);
 
-  function openHistoryItem(item) {
-    setResult({
-      filename: item.filename,
-      input_type: item.input_type,
-      detected_language: item.meta?.detected_language || "en",
-      preferred_language: item.meta?.preferred_language || language,
-      extracted_text: item.extracted_text,
-      analysis: item.analysis,
-      charts: item.charts,
-      checklist: item.checklist,
-      signals: item.signals,
-      meta: item.meta
+  function bumpUsageIfNeeded() {
+    if (plan !== "basic") return;
+    const mk = monthKey();
+    setUsage((u) => {
+      const base = u.month === mk ? u : defaultUsage();
+      return { month: mk, used: base.used + 1 };
     });
-    navigate("/");
   }
 
-  function clearHistory() {
-    if (!confirm("Clear history saved in this browser?")) return;
-    setHistory([]);
-    saveHistory([]);
+  function saveToHistory(entry) {
+    setHistory((prev) => [entry, ...prev].slice(0, 200));
+  }
+
+  function onScanComplete(payload, meta) {
+    // payload: { extracted_text, result, input_type, filename, ... }
+    const ts = new Date().toISOString();
+
+    const entry = {
+      id: crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      ts,
+      plan,
+      ...meta, // property/developer/country/project/folder/tags
+      input_type: payload.input_type || meta?.input_type || "text",
+      filename: payload.filename || meta?.filename || null,
+      extracted_text: payload.extracted_text || "",
+      result: payload.result || payload,
+    };
+
+    setResult(entry);
+    saveToHistory(entry);
+    bumpUsageIfNeeded();
+    setRoute("scan");
   }
 
   return (
-    <div className="min-h-screen">
-      <div className="fixed inset-0 -z-10 bg-noise" />
-      <TopNav language={language} onLanguageChange={setLanguage} langs={LANGS} />
+    <div className="min-h-screen bg-[#070A12] text-slate-100">
+      <TopNav
+        route={route}
+        setRoute={setRoute}
+        plan={plan}
+        setPlan={setPlan}
+        usage={usage}
+        freeLimit={freeLimit}
+        canScan={canScan}
+      />
 
-      <ProgressOverlay open={overlay.open} stepIndex={overlay.step} steps={steps} />
-
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="pill">
-            API: <span className="ml-1 opacity-90">{import.meta.env.VITE_API_BASE_URL || "localhost"}</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="pill">PDF reports</span>
-            <span className="pill">OCR enabled</span>
-            <span className="pill">Local history</span>
-            {health?.ok ? <span className="pill">API online</span> : <span className="pill">API status unknown</span>}
-          </div>
-        </div>
-
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <div className="grid lg:grid-cols-2 gap-4">
-                <ScanForm
-                  language={language}
-                  onResult={(data) => {
-                    // show overlay briefly in UI (client animation)
-                    setOverlay({ open: true, step: 0 });
-                    const timer = setInterval(() => {
-                      setOverlay((s) => {
-                        const next = Math.min(steps.length - 1, s.step + 1);
-                        return { open: true, step: next };
-                      });
-                    }, 650);
-
-                    setTimeout(() => {
-                      clearInterval(timer);
-                      onResult(data);
-                    }, 2600);
-                  }}
-                />
-                <ResultsPanel result={result} history={history} onSaveToHistory={saveCurrentToHistory} />
+      <main className="mx-auto w-full max-w-7xl px-4 pb-16 pt-6">
+        {/* API Status strip */}
+        <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${apiStatus.ok ? "bg-emerald-400" : apiStatus.ok === false ? "bg-rose-400" : "bg-slate-500"}`} />
+              <span className="text-slate-200">
+                API{" "}
+                {apiStatus.ok === null ? "checking…" : apiStatus.ok ? "online" : "offline"}
+              </span>
+              {apiStatus.ok && apiStatus.info?.supported_uploads ? (
+                <span className="text-slate-400">
+                  • Uploads: {apiStatus.info.supported_uploads.join(", ")}
+                </span>
+              ) : null}
+            </div>
+            {apiStatus.err ? (
+              <div className="text-rose-300 whitespace-pre-wrap">{apiStatus.err}</div>
+            ) : (
+              <div className="text-slate-400">
+                {import.meta.env.VITE_API_BASE_URL || "VITE_API_BASE_URL not set"}
               </div>
-            }
-          />
-          <Route path="/history" element={<History items={history} onOpen={openHistoryItem} onClear={clearHistory} />} />
-          <Route path="/pricing" element={<Pricing />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/faq" element={<FAQ />} />
-        </Routes>
-
-        <div className="mt-8 text-center text-xs text-slate-400">
-          <div>
-            Disclaimer: DeedSense provides a risk signal based on text patterns and structured scoring. It is not legal advice,
-            not a guarantee, and must be validated with official documents and due diligence.
+            )}
           </div>
-          <div className="mt-2">© {new Date().getFullYear()} DeedSense • MVP on Render</div>
         </div>
-      </div>
+
+        {route === "scan" && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            <div className="lg:col-span-5">
+              <ScanForm
+                canScan={canScan}
+                plan={plan}
+                freeLeft={
+                  plan === "basic"
+                    ? Math.max(0, freeLimit - (usage.month === monthKey() ? usage.used : 0))
+                    : null
+                }
+                setBusy={setBusy}
+                setBusySteps={setBusySteps}
+                onComplete={onScanComplete}
+              />
+            </div>
+
+            <div className="lg:col-span-7">
+              <ResultsPanel
+                entry={result}
+                allHistory={history}
+                onGoCompare={() => setRoute("compare")}
+              />
+            </div>
+          </div>
+        )}
+
+        {route === "history" && (
+          <History history={history} setHistory={setHistory} />
+        )}
+
+        {route === "compare" && (
+          <Compare history={history} />
+        )}
+
+        {route === "pricing" && <Pricing plan={plan} setPlan={setPlan} />}
+        {route === "about" && <About />}
+        {route === "faq" && <FAQ />}
+
+        <footer className="mt-10 border-t border-white/10 pt-6 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>© 2026 DeedSense • MVP (Render)</div>
+            <div className="max-w-3xl">
+              <span className="font-semibold text-slate-300">Disclaimer:</span>{" "}
+              DeedSense provides risk signals based on text patterns and AI-assisted analysis. It is not legal advice, not
+              a guarantee, and must be validated through official documents and due diligence.
+            </div>
+          </div>
+        </footer>
+      </main>
+
+      <ProgressOverlay open={busy} steps={busySteps} />
     </div>
   );
 }
