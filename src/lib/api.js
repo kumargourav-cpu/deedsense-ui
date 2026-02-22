@@ -1,37 +1,53 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://deedsense-api.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:10000";
+
+async function safeJson(res) {
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { raw: text }; }
+}
 
 export async function apiHealth() {
-  const r = await fetch(`${API_BASE}/health`);
-  if (!r.ok) throw new Error("API health check failed");
-  return r.json();
+  const res = await fetch(`${API_BASE}/health`);
+  if (!res.ok) throw new Error(`Health failed (${res.status})`);
+  return safeJson(res);
 }
 
-export async function analyzeText({ text, lang }) {
-  const r = await fetch(`${API_BASE}/analyze-text`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, lang }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.detail || "Analyze failed");
-  return data;
-}
-
-export async function extractAndAnalyze({ file, lang }) {
-  // UI expects /extract (your earlier UI error said /extract). We standardize on /extract here.
+export async function apiExtract(file) {
   const fd = new FormData();
   fd.append("file", file);
-  if (lang) fd.append("lang", lang);
 
-  const r = await fetch(`${API_BASE}/extract`, { method: "POST", body: fd });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.detail || "Upload/extraction failed");
+  const res = await fetch(`${API_BASE}/extract`, {
+    method: "POST",
+    body: fd
+  });
+
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.detail || `Extract failed (${res.status})`);
   return data;
 }
 
-export async function getHistory() {
-  const r = await fetch(`${API_BASE}/history`);
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.detail || "History failed");
+export async function apiAnalyze(text, preferred_language) {
+  const res = await fetch(`${API_BASE}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, preferred_language })
+  });
+
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.detail || `Analyze failed (${res.status})`);
+  return data;
+}
+
+export async function apiScan(file, preferred_language) {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (preferred_language) fd.append("preferred_language", preferred_language);
+
+  const res = await fetch(`${API_BASE}/scan`, {
+    method: "POST",
+    body: fd
+  });
+
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.detail || `Scan failed (${res.status})`);
   return data;
 }
