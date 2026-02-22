@@ -1,3 +1,4 @@
+import BrandStrip from "../components/BrandStrip";
 import React from "react";
 
 function Pill({ children }) {
