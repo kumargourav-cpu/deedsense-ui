@@ -1,166 +1,218 @@
 import React, { useMemo, useRef, useState } from "react";
-import { apiAnalyze, apiExtract, apiScan } from "../lib/api.js";
+import { apiExtract, apiScan } from "../lib/api.js";
 
-export default function ScanForm({ language, onResult }) {
-  const [mode, setMode] = useState("upload"); // upload | paste
-  const [text, setText] = useState("");
+const MAX_PASTE_CHARS = 250000;
+
+function prettyBytes(bytes) {
+  if (!bytes && bytes !== 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let b = bytes;
+  let i = 0;
+  while (b >= 1024 && i < units.length - 1) {
+    b /= 1024;
+    i++;
+  }
+  return `${b.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+export default function ScanForm({ language, onResult, onProgress }) {
+  const fileRef = useRef(null);
+
+  const [mode, setMode] = useState("file"); // "file" | "paste"
   const [file, setFile] = useState(null);
-  const [extracted, setExtracted] = useState(null);
+  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const inputRef = useRef(null);
 
   const canScan = useMemo(() => {
-    if (mode === "paste") return text.trim().length >= 20;
-    return !!file;
-  }, [mode, text, file]);
+    if (busy) return false;
+    if (mode === "file") return !!file;
+    const t = (text || "").trim();
+    return t.length >= 10;
+  }, [busy, mode, file, text]);
 
-  async function handleExtract() {
+  function reset() {
     setErr("");
-    setBusy(true);
-    try {
-      const data = await apiExtract(file);
-      setExtracted(data);
-      setText(data.extracted_text || "");
-    } catch (e) {
-      setErr(e?.message || "Extraction failed.");
-    } finally {
-      setBusy(false);
-    }
+    setBusy(false);
   }
 
-  async function handleScan() {
-    setErr("");
+  async function runScan() {
+    reset();
     setBusy(true);
 
     try {
-      let data;
-      if (mode === "paste") {
-        data = await apiAnalyze(text, language);
+      // Step 1: get text (either extract from file or use pasted text)
+      let extractedText = "";
+
+      if (mode === "file") {
+        if (!file) throw new Error("Please choose a file first.");
+
+        onProgress?.({
+          open: true,
+          title: "Uploading & extracting",
+          steps: [
+            "Uploading file securely",
+            "Detecting file type",
+            "Extracting text (OCR if needed)",
+          ],
+          activeIndex: 1,
+          pct: 20,
+        });
+
+        const extracted = await apiExtract(file);
+
+        extractedText = extracted?.extracted_text || "";
+        if (!extractedText || extractedText.trim().length < 10) {
+          throw new Error(
+            "No readable text found. If this is a scanned file, ensure the scan is clear and OCR is enabled."
+          );
+        }
+
+        onProgress?.({
+          open: true,
+          title: "Text extracted",
+          steps: [
+            "Uploading file securely",
+            "Extracting text (OCR if needed)",
+            "Preparing analysis",
+          ],
+          activeIndex: 2,
+          pct: 55,
+        });
       } else {
-        // Prefer scan endpoint to do extract+analyze together:
-        data = await apiScan(file, language);
+        extractedText = (text || "").slice(0, MAX_PASTE_CHARS);
+        if (extractedText.trim().length < 10) {
+          throw new Error("Paste at least a few lines to analyze.");
+        }
+
+        onProgress?.({
+          open: true,
+          title: "Preparing analysis",
+          steps: ["Validating input", "Preparing analysis", "Running scan"],
+          activeIndex: 1,
+          pct: 35,
+        });
       }
-      onResult(data);
+
+      // Step 2: scan
+      onProgress?.({
+        open: true,
+        title: "Scanning risk signals",
+        steps: [
+          "Parsing content structure",
+          "Detecting persuasion/manipulation patterns",
+          "Generating report + charts",
+        ],
+        activeIndex: 2,
+        pct: 75,
+      });
+
+      const scanRes = await apiScan(extractedText, language);
+
+      onProgress?.({
+        open: true,
+        title: "Finalizing",
+        steps: ["Generating report + charts", "Finishing", "Ready"],
+        activeIndex: 2,
+        pct: 92,
+      });
+
+      onResult?.({
+        extracted_text: scanRes?.extracted_text || extractedText,
+        result: scanRes?.result || scanRes,
+      });
+
+      onProgress?.({ open: false });
     } catch (e) {
       setErr(e?.message || "Scan failed.");
+      onProgress?.({ open: false });
     } finally {
       setBusy(false);
     }
-  }
-
-  function clearAll() {
-    setFile(null);
-    setText("");
-    setExtracted(null);
-    setErr("");
-    if (inputRef.current) inputRef.current.value = "";
   }
 
   return (
-    <div className="card p-6">
-      <div className="flex items-start justify-between gap-3">
+    <div className="glass rounded-3xl p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-lg font-extrabold">Scan a Listing / Deed / Message</div>
+          <div className="text-lg font-extrabold text-white">
+            Scan a Listing / Deed / Message
+          </div>
           <div className="mt-1 text-sm text-slate-300">
-            Upload a document or paste text. You’ll get risk signals, a checklist, and an investor-style summary.
+            UAE + international property investors • detect manipulation • summarize risks
           </div>
         </div>
-        <div className="pill">OCR Enabled</div>
+
+        <div className="flex gap-2">
+          <button
+            className={"btn " + (mode === "file" ? "btn-primary" : "btn-ghost")}
+            onClick={() => setMode("file")}
+            disabled={busy}
+          >
+            Upload
+          </button>
+          <button
+            className={"btn " + (mode === "paste" ? "btn-primary" : "btn-ghost")}
+            onClick={() => setMode("paste")}
+            disabled={busy}
+          >
+            Paste
+          </button>
+        </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        <button
-          className={mode === "upload" ? "btn-primary" : "btn-ghost"}
-          onClick={() => setMode("upload")}
-          disabled={busy}
-        >
-          Upload file
-        </button>
-        <button
-          className={mode === "paste" ? "btn-primary" : "btn-ghost"}
-          onClick={() => setMode("paste")}
-          disabled={busy}
-        >
-          Paste text
-        </button>
-        <button className="btn-ghost ml-auto" onClick={clearAll} disabled={busy}>
-          Clear
-        </button>
-      </div>
-
-      <div className="hr" />
-
-      {mode === "upload" ? (
-        <div className="grid gap-3">
-          <div>
-            <div className="label mb-2">Upload (PDF / DOCX / TXT / PNG / JPG)</div>
+      {mode === "file" ? (
+        <div className="mt-4">
+          <div className="label mb-2">Upload file</div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <input
-              ref={inputRef}
+              ref={fileRef}
               type="file"
-              className="input"
               accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
+              className="block w-full text-sm text-slate-300 file:mr-3 file:rounded-xl file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-white hover:file:bg-white/15"
               onChange={(e) => {
-                setFile(e.target.files?.[0] || null);
-                setExtracted(null);
-                setText("");
+                const f = e.target.files?.[0] || null;
+                setFile(f);
+                setErr("");
               }}
               disabled={busy}
             />
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setFile(null);
+                setErr("");
+                if (fileRef.current) fileRef.current.value = "";
+              }}
+              disabled={busy}
+            >
+              Clear
+            </button>
+          </div>
+
+          {file ? (
             <div className="mt-2 text-xs text-slate-400">
-              For scanned PDFs, OCR will run automatically. If your document is large, keep it under ~12MB.
+              Selected: <span className="text-slate-200">{file.name}</span>{" "}
+              <span className="opacity-70">({prettyBytes(file.size)})</span>
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button className="btn-ghost" onClick={handleExtract} disabled={!file || busy}>
-              Extract text
-            </button>
-            <button className="btn-primary" onClick={handleScan} disabled={!canScan || busy}>
-              {busy ? "Scanning…" : "Scan"}
-            </button>
-          </div>
-
-          {extracted ? (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-bold">Extraction Preview</div>
-                <div className="pill">
-                  {extracted.input_type} • detected {extracted.detected_language}
-                </div>
-              </div>
-              <textarea className="input mt-3 min-h-[160px]" value={text} onChange={(e) => setText(e.target.value)} />
-              <div className="mt-2 text-xs text-slate-400">
-                You can edit extracted text before scanning (useful if OCR captured noise).
-              </div>
-              <div className="mt-3">
-                <button className="btn-primary" onClick={() => apiAnalyze(text, language).then(onResult)} disabled={busy || text.trim().length < 20}>
-                  Scan extracted text
-                </button>
-              </div>
+          ) : (
+            <div className="mt-2 text-xs text-slate-400">
+              Supports PDF (scanned too), DOCX, TXT, PNG/JPG.
             </div>
-          ) : null}
+          )}
         </div>
       ) : (
-        <div className="grid gap-3">
-          <div>
-            <div className="label mb-2">Paste content</div>
-            <textarea
-              className="input min-h-[220px]"
-              placeholder="Paste listing description, broker message, payment plan, deed notes, etc…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              disabled={busy}
-            />
-            <div className="mt-2 text-xs text-slate-400">
-              Tip: Include payment terms + urgency language + fees + handover claims for strongest analysis.
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button className="btn-primary" onClick={handleScan} disabled={!canScan || busy}>
-              {busy ? "Scanning…" : "Scan"}
-            </button>
+        <div className="mt-4">
+          <div className="label mb-2">Paste content</div>
+          <textarea
+            className="textarea h-44"
+            placeholder="Paste listing description, broker messages, payment terms, WhatsApp chat, etc..."
+            value={text}
+            onChange={(e) => setText(e.target.value.slice(0, MAX_PASTE_CHARS))}
+            disabled={busy}
+          />
+          <div className="mt-2 text-xs text-slate-400">
+            Max {MAX_PASTE_CHARS.toLocaleString()} characters for safety.
           </div>
         </div>
       )}
@@ -170,6 +222,15 @@ export default function ScanForm({ language, onResult }) {
           {err}
         </div>
       ) : null}
+
+      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs text-slate-400">
+          Tip: paste the broker’s message + payment plan + urgency language.
+        </div>
+        <button className="btn btn-primary" onClick={runScan} disabled={!canScan}>
+          {busy ? "Scanning..." : "Scan"}
+        </button>
+      </div>
     </div>
   );
 }
