@@ -1,34 +1,40 @@
 // src/lib/api.js
-// Central API wrapper for DeedSense UI
-// Make sure Render UI has: VITE_API_BASE_URL=https://deedsense-api.onrender.com
-
 const BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
-function mustHaveBase() {
+function requireBase() {
   if (!BASE) {
     throw new Error(
-      "VITE_API_BASE_URL is missing. Set it in Render UI env vars (e.g. https://deedsense-api.onrender.com)"
+      "VITE_API_BASE_URL is missing. Set it in Render UI env vars to https://deedsense-api.onrender.com"
     );
   }
 }
 
-async function parseJsonSafe(res) {
+async function readJsonOrText(res) {
   const text = await res.text();
+  if (!text) return {};
   try {
-    return text ? JSON.parse(text) : {};
+    return JSON.parse(text);
   } catch {
     return { raw: text };
   }
 }
 
-async function request(path, { method = "GET", body, headers = {}, isForm = false } = {}) {
-  mustHaveBase();
+function normalizeError(payload, status) {
+  // FastAPI often returns {detail: "..."} or {detail: {...}}
+  const d = payload?.detail ?? payload?.error ?? payload?.message ?? payload?.raw;
+  if (typeof d === "string") return d;
+  if (d && typeof d === "object") return JSON.stringify(d, null, 2);
+  return `Request failed (${status})`;
+}
+
+async function request(path, { method = "GET", body, headers = {}, form = false } = {}) {
+  requireBase();
   const url = `${BASE}${path.startsWith("/") ? "" : "/"}${path}`;
 
   const opts = { method, headers: { ...headers } };
 
   if (body !== undefined) {
-    if (isForm) {
+    if (form) {
       opts.body = body; // FormData
     } else {
       opts.headers["Content-Type"] = "application/json";
@@ -40,66 +46,38 @@ async function request(path, { method = "GET", body, headers = {}, isForm = fals
   try {
     res = await fetch(url, opts);
   } catch (e) {
-    throw new Error(`Failed to fetch: ${e?.message || e}`);
+    // Most common: CORS or wrong URL
+    throw new Error(
+      `Failed to fetch. Check:\n- VITE_API_BASE_URL\n- API CORS (ALLOWED_ORIGINS)\n- API is up\n\nTechnical: ${e?.message || String(e)}`
+    );
   }
 
-  const data = await parseJsonSafe(res);
+  const payload = await readJsonOrText(res);
 
   if (!res.ok) {
-    const msg =
-      data?.detail ||
-      data?.error ||
-      data?.message ||
-      `Request failed (${res.status})`;
-    throw new Error(msg);
+    throw new Error(normalizeError(payload, res.status));
   }
 
-  return data;
+  return payload;
 }
 
-/**
- * GET /health
- */
-export async function apiHealth() {
+// --- Exports used across UI ---
+export function apiHealth() {
   return request("/health");
 }
 
-/**
- * POST /scan
- * Body: { text: string, language?: string }
- * Response: { extracted_text?, result: {...}, ... }
- */
-export async function apiScan({ text, language }) {
-  return request("/scan", {
-    method: "POST",
-    body: { text, language },
-  });
+export function apiInfo() {
+  return request("/info");
 }
 
-/**
- * POST /extract
- * FormData: file=<Upload>
- * Response: { extracted_text, result, filename, input_type, ... }
- */
-export async function apiExtract(file) {
+// POST /scan { text, language, meta? }
+export function apiScan({ text, language, meta }) {
+  return request("/scan", { method: "POST", body: { text, language, meta } });
+}
+
+// POST /extract multipart form-data file=<file>
+export function apiExtract(file) {
   const fd = new FormData();
   fd.append("file", file);
-  return request("/extract", {
-    method: "POST",
-    body: fd,
-    isForm: true,
-  });
-}
-
-/**
- * Optional alias used by older UI code.
- * Many of your previous builds imported apiAnalyze; keep it as a wrapper.
- */
-export async function apiAnalyze({ text, language }) {
-  return apiScan({ text, language });
-}
-
-// Some older code expects apiExtractAndAnalyze; keep a compatible alias.
-export async function apiExtractAndAnalyze(file) {
-  return apiExtract(file);
+  return request("/extract", { method: "POST", body: fd, form: true });
 }
