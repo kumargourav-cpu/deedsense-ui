@@ -1,13 +1,91 @@
-export const LANGS = [
+export const LANGUAGES = [
   { code: "en", label: "English" },
-  { code: "ar", label: "Arabic (العربية)" },
-  { code: "hi", label: "Hindi (हिंदी)" },
-  { code: "fr", label: "French (Français)" },
-  { code: "de", label: "German (Deutsch)" },
-  { code: "it", label: "Italian (Italiano)" },
-  { code: "es", label: "Spanish (Español)" }
+  { code: "es", label: "Español" },
+  { code: "fr", label: "Français" },
+  { code: "ar", label: "العربية" },
 ];
 
-export function prettyLang(code) {
-  return LANGS.find((l) => l.code === code)?.label || code || "Unknown";
+export const PLAN_OPTIONS = ["basic", "pro", "enterprise"];
+
+const strings = {
+  en: {
+    appTitle: "Premium DeedSense Scanner",
+    appSubtitle: "Dark glass intelligence for deed due diligence",
+    scan: "Scan",
+    chooseFile: "Drop file or click to upload",
+    supportedFiles: "PDF, DOCX, TXT, PNG, JPG, WEBP • max 15MB",
+    pasteFallback: "Optional pasted text",
+    scanNow: "Scan now",
+    clear: "Clear",
+    download: "Download report",
+    report: "Intelligence Report",
+    noReport: "Run a scan to view your premium report",
+    summary: "Summary",
+    strengths: "Strengths",
+    risks: "Risks",
+    recommendations: "Recommendations",
+    nextActions: "Next actions",
+    planNotes: "Plan notes",
+  },
+  es: {
+    appTitle: "Escáner Premium DeedSense",
+    appSubtitle: "Inteligencia dark glass para diligencia de escrituras",
+    scan: "Escanear",
+    chooseFile: "Suelta un archivo o haz clic para subir",
+    supportedFiles: "PDF, DOCX, TXT, PNG, JPG, WEBP • máx 15MB",
+    pasteFallback: "Texto pegado opcional",
+    scanNow: "Escanear ahora",
+    clear: "Limpiar",
+    download: "Descargar reporte",
+    report: "Reporte de Inteligencia",
+    noReport: "Ejecuta un escaneo para ver tu reporte premium",
+    summary: "Resumen",
+    strengths: "Fortalezas",
+    risks: "Riesgos",
+    recommendations: "Recomendaciones",
+    nextActions: "Próximos pasos",
+    planNotes: "Notas del plan",
+  },
+  fr: {
+    appTitle: "Scanner Premium DeedSense",
+    appSubtitle: "Intelligence dark glass pour la due diligence",
+    scan: "Scanner",
+    chooseFile: "Déposez un fichier ou cliquez pour téléverser",
+    supportedFiles: "PDF, DOCX, TXT, PNG, JPG, WEBP • max 15Mo",
+    pasteFallback: "Texte collé (optionnel)",
+    scanNow: "Lancer l'analyse",
+    clear: "Effacer",
+    download: "Télécharger le rapport",
+    report: "Rapport d'Intelligence",
+    noReport: "Lancez une analyse pour afficher le rapport premium",
+    summary: "Résumé",
+    strengths: "Forces",
+    risks: "Risques",
+    recommendations: "Recommandations",
+    nextActions: "Prochaines actions",
+    planNotes: "Notes du plan",
+  },
+  ar: {
+    appTitle: "ماسح DeedSense المميز",
+    appSubtitle: "تحليلات زجاجية داكنة لفحص العقود",
+    scan: "فحص",
+    chooseFile: "اسحب الملف أو انقر للرفع",
+    supportedFiles: "PDF, DOCX, TXT, PNG, JPG, WEBP • الحد 15MB",
+    pasteFallback: "نص اختياري",
+    scanNow: "ابدأ الفحص",
+    clear: "مسح",
+    download: "تنزيل التقرير",
+    report: "تقرير الذكاء",
+    noReport: "ابدأ فحصًا لعرض التقرير المميز",
+    summary: "الملخص",
+    strengths: "نقاط القوة",
+    risks: "المخاطر",
+    recommendations: "التوصيات",
+    nextActions: "الخطوات القادمة",
+    planNotes: "ملاحظات الخطة",
+  },
+};
+
+export function t(language, key) {
+  return strings[language]?.[key] || strings.en[key] || key;
 }
